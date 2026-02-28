@@ -1,0 +1,11 @@
+apiVersion: builtin
+kind: PatchTransformer
+metadata:
+  name: strip-volumepopulator-namespace
+patch: |-
+  - op: remove
+    path: /metadata/namespace
+target:
+  group: populator.storage.k8s.io
+  version: v1beta1
+  kind: VolumePopulator

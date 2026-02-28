@@ -1,0 +1,10 @@
+{
+  "repoVersion": 1,
+  "example": true,
+  "slotSizeBytes": 100,
+  "chunkSizeBytes": 100,
+  "packRecordHeaderBytes": 28,
+  "packRecordBytes": 128,
+  "chunkIdRule": "demo-fixed-id",
+  "note": "real implementation should use cryptographic hash chunk IDs"
+}

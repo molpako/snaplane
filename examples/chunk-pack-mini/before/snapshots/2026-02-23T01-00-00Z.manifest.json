@@ -1,0 +1,13 @@
+{
+  "manifestId": "2026-02-23T01-00-00Z",
+  "parent": null,
+  "volumeSizeBytes": 100000,
+  "slotSizeBytes": 100,
+  "allocatedSlots": [10, 420, 777, 999],
+  "slotToChunk": {
+    "10": "ch_base00000001",
+    "420": "ch_slot420_oldx",
+    "777": "ch_base00000003",
+    "999": "ch_base00000004"
+  }
+}

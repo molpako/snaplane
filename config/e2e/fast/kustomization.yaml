@@ -1,0 +1,19 @@
+namespace: snaplane-system
+namePrefix: snaplane-
+
+resources:
+- ../../crd
+- ../../rbac
+- ../../manager
+- ../../writer-sidecar
+- ../../restore-populator
+- metrics_service.yaml
+
+patches:
+- path: manager_metrics_patch.yaml
+  target:
+    kind: Deployment
+    name: controller-manager
+
+transformers:
+- strip_volumepopulator_namespace_transformer.yaml

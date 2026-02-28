@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- snaplane_v1alpha1_backuppolicy.yaml
+- snaplane_v1alpha1_backup.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

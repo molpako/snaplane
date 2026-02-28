@@ -1,0 +1,9 @@
+resources:
+- issuer.yaml
+- writer-ca-certificate.yaml
+- writer-ca-issuer.yaml
+- writer-sidecar-server-certificate.yaml
+- writer-client-certificate.yaml
+
+configurations:
+- kustomizeconfig.yaml

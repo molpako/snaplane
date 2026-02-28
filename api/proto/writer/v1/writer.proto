@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+package writer.v1;
+
+option go_package = "github.com/molpako/snaplane/api/proto/writer/v1;writerv1";
+
+service LocalBackupWriter {
+  rpc StartWrite(StartWriteRequest) returns (StartWriteResponse);
+  rpc WriteFrames(stream WriteFrame) returns (WriteFramesSummary);
+  rpc CommitWrite(CommitWriteRequest) returns (CommitWriteResponse);
+  rpc AbortWrite(AbortWriteRequest) returns (AbortWriteResponse);
+}
+
+message StartWriteRequest {
+  string backup_uid = 1;
+  string backup_name = 2;
+  string namespace = 3;
+  string pvc_name = 4;
+}
+
+message StartWriteResponse {
+  string session_id = 1;
+  int64 accepted_offset = 2;
+  string target_path = 3;
+}
+
+message WriteFrame {
+  string session_id = 1;
+  oneof body {
+    DataFrame data = 2;
+    ZeroFrame zero = 3;
+    EofFrame eof = 4;
+  }
+}
+
+message DataFrame {
+  int64 offset = 1;
+  bytes payload = 2;
+  uint32 crc32c = 3;
+}
+
+message ZeroFrame {
+  int64 offset = 1;
+  int64 length = 2;
+}
+
+message EofFrame {
+  int64 logical_size = 1;
+}
+
+message WriteFramesSummary {
+  int64 last_acked_offset = 1;
+  int64 data_bytes = 2;
+  int64 zero_bytes = 3;
+}
+
+message CommitWriteRequest {
+  string session_id = 1;
+}
+
+message CommitWriteResponse {
+  string target_path = 1;
+  string repository_path = 2;
+  string manifest_id = 3;
+  string repo_uuid = 4;
+  int64 volume_size_bytes = 5;
+  int64 chunk_size_bytes = 6;
+  string restore_format = 7;
+}
+
+message AbortWriteRequest {
+  string session_id = 1;
+  string reason = 2;
+}
+
+message AbortWriteResponse {}

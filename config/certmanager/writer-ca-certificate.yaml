@@ -1,0 +1,14 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: writer-ca
+spec:
+  secretName: writer-ca
+  isCA: true
+  commonName: writer-ca
+  duration: 2160h
+  renewBefore: 360h
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: writer-selfsigned-issuer

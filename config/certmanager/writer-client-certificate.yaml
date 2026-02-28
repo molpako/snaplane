@@ -1,0 +1,17 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: writer-client
+spec:
+  secretName: writer-client-cert
+  commonName: writer-client
+  duration: 2160h
+  renewBefore: 360h
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: writer-ca-issuer
+  usages:
+  - client auth
+  - digital signature
+  - key encipherment
