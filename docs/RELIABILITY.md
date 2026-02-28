@@ -1,0 +1,5 @@
+# RELIABILITY.md
+
+Reliability requirements should be expanded before coding.
+See docs/design-docs/requirements-gap-analysis.md.
+
