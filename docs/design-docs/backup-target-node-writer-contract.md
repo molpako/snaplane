@@ -1,161 +1,93 @@
-# Backup Target Node And Writer Contract (v1alpha1 Locked)
+# Backup Target Node And Writer Contract
 
-## Objective
+## Purpose
 
-バックアップ転送先を node-local filesystem に固定し、PVC ごとの宛先ノード選定と writer sidecar の通信契約を v1alpha1 で確定する。
+This document describes the implemented contract for choosing a node-local backup target and writing data through the writer sidecar.
 
-## Scope
+## Locked Rules
 
-このドキュメントが確定する対象:
-- backup target ノード選定ルール
-- PVC への宛先ノード固定化ルール
-- Node sidecar heartbeat と容量指標の公開方法
-- Backup controller と writer sidecar 間 gRPC 契約
-- writer sidecar のモック書込み契約
-- mTLS と cert-manager 前提
+1. Only nodes with label `snaplane.molpako.github.io/backup-target=true` are eligible.
+2. Assignment is pinned per source PVC through PVC annotations.
+3. First assignment chooses the candidate with the lowest `used-bytes`, then `nodeName`.
+4. Runtime node state is published through `coordination.k8s.io/v1 Lease`, not a new CRD.
+5. If the assigned node becomes unusable, the backup fails; v1 does not fail over automatically.
+6. Controller-to-writer traffic is mTLS only.
+7. Writer RPCs are `StartWrite`, `WriteFrames`, `CommitWrite`, and `AbortWrite`.
 
-このドキュメントの対象外:
-- 実データの差分取得/フレーム生成アルゴリズム
-- 自動フェイルオーバー
-- 容量しきい値や heartbeat 間隔の動的チューニング
-
-## Locked Decisions
-
-1. backup destination 候補は label `snaplane.molpako.github.io/backup-target=true` ノードのみ。
-2. 割当単位は PVC。初回だけ選定し、以後は PVC annotation で固定する。
-3. 初回選定は `usedBytes` 最小ノードを選ぶ。同値は `nodeName` 昇順。
-4. sidecar 状態は `coordination.k8s.io/v1 Lease` で報告し、新規 CRD は導入しない。
-5. 割当ノード不達・書込不能時は `Backup` を `Failed` にし、PVC 割当は維持する。
-6. writer 通信は mTLS 必須。server/client 証明書は cert-manager 管理。
-7. writer gRPC は `StartWrite` + client streaming `WriteFrames` + `CommitWrite` + `AbortWrite`。
-8. v1alpha1 では writer 実装はモック書込みを最小成立要件とする。
-
-## Metadata Contract
+## Metadata
 
 ### Node label
 
-- key: `snaplane.molpako.github.io/backup-target`
-- value: `"true"`
+- `snaplane.molpako.github.io/backup-target=true`
 
 ### PVC annotations
-
-対象 PVC: `BackupPolicy.spec.source.persistentVolumeClaimName`
 
 - `snaplane.molpako.github.io/assigned-backup-node=<nodeName>`
 - `snaplane.molpako.github.io/assigned-backup-node-at=<RFC3339>`
 
-### Lease contract (operator namespace)
+### Lease annotations
 
-- name: `backup-node-<nodeName>`
-- `spec.renewTime`: heartbeat 時刻
-- annotations:
-  - `snaplane.molpako.github.io/writer-endpoint=<podIP:9443>`
-  - `snaplane.molpako.github.io/used-bytes=<int64>`
-  - `snaplane.molpako.github.io/available-bytes=<int64>`
+- `snaplane.molpako.github.io/writer-endpoint=<podIP:port>`
+- `snaplane.molpako.github.io/used-bytes=<int64>`
+- `snaplane.molpako.github.io/available-bytes=<int64>`
 
-## Scheduler Contract
+## Candidate Selection
 
-### Candidate filter
+A node is a valid candidate only when all of these are true:
+- the backup-target label is present
+- `NodeReady=True`
+- the writer Lease exists and is fresh
+- the Lease exposes endpoint and capacity annotations
+- `available-bytes >= 10 GiB`
 
-候補ノードは以下すべてを満たすこと:
-1. `backup-target=true` label を持つ。
-2. Node condition `Ready=True`。
-3. Lease が存在し、`now - renewTime <= 90s`。
-4. Lease annotation に endpoint/used/available が揃っている。
-5. `availableBytes >= 10GiB`。
+Selection behavior:
+- if the PVC has no pinned node, choose the best current candidate and patch the PVC
+- if the PVC already has a pinned node and it is still a valid candidate, reuse it
+- if the pinned node is no longer valid, set `Backup.spec.destination.nodeName` to `unavailable`
+- if no candidate is valid, also use `unavailable`
 
-### Selection and pinning
+## Backup API Impact
 
-1. PVC に `assigned-backup-node` が未設定:
-   - 候補から `usedBytes` 最小を選ぶ。
-   - 同値は `nodeName` 昇順。
-   - PVC annotation を patch して固定化する。
-   - patch conflict は再取得して再判定する（楽観ロック）。
-2. PVC に `assigned-backup-node` が設定済み:
-   - そのノードが candidate 条件を満たす間は継続利用する（再選定しない）。
-   - candidate 条件を満たさない場合は destination を `unavailable` とする。
-3. 候補ゼロまたは入力不備:
-   - `Backup.spec.destination.nodeName="unavailable"` を設定し、
-     実行段階で `AssignedNodeUnavailable` として失敗させる。
+- `Backup.spec.destination.nodeName` is required and immutable
+- execution fails with `AssignedNodeUnavailable` when the destination is `unavailable` or the resolved writer cannot be reached
 
-## Backup API Contract
+## Writer Protocol
 
-`Backup.spec`:
-- `destination.nodeName` を required/immutable で持つ。
+### RPCs
 
-`Backup.status`:
-- `writer.sessionID`
-- `writer.lastAckedOffset`
-- `writer.targetPath`
+- `StartWrite` is idempotent by `backup_uid`
+- `WriteFrames` is client streaming
+- `CommitWrite` finalizes a session after EOF
+- `AbortWrite` best-effort cleans up an incomplete session
 
-## Writer gRPC Contract
+### Frame types
 
-service:
-- `StartWrite(StartWriteRequest) returns (StartWriteResponse)`
-- `WriteFrames(stream WriteFrame) returns (WriteFramesSummary)`
-- `CommitWrite(CommitWriteRequest) returns (CommitWriteResponse)`
-- `AbortWrite(AbortWriteRequest) returns (AbortWriteResponse)`
+- `DATA(offset, payload, crc32c)`
+- `ZERO(offset, length)`
+- `EOF(logical_size)`
 
-frame body:
-- `DATA` (`offset`, `payload`, `crc32c`)
-- `ZERO` (`offset`, `length`)
-- `EOF` (`logical_size`)
+### Session rules
 
-session rules:
-1. `StartWrite` は `backup_uid` 単位で冪等。
-2. `WriteFrames` は contiguous offset を要求する。
-3. `accepted_offset` より後退した frame は拒否する。
-4. `CommitWrite` は `EOF` 受信済み session のみ許可する。
-5. stream 異常時は `AbortWrite` で中断できる。
+- offsets must be contiguous
+- empty data frames are rejected
+- CRC mismatch is rejected
+- `CommitWrite` requires EOF
 
-## Mock Writer Behavior (v1)
+## Writer Storage Modes
 
-パス:
-- `/var/backup/<namespace>/<pvc_name>/<backup_name>/`
+### Mock mode
 
-ファイル:
-- `mock.img.tmp` に `DATA` を `pwrite`。
-- `ZERO` は zero-fill 書込み（hole punch は任意）。
-- `CommitWrite` で `mock.img` へ rename。
-- `meta.json` に session と統計を保存。
+- writes to `/var/backup/<namespace>/<pvc>/<backup>/`
+- persists `mock.img` and `meta.json`
 
-## Security Contract (mTLS)
+### CAS mode
 
-1. sidecar server は `RequireAndVerifyClientCert` を使用する。
-2. backup controller は client cert を提示し、CA 検証を行う。
-3. endpoint discovery は Lease annotation `writer-endpoint` を使う。
-4. cert-manager で server/client 証明書を発行/更新する。
+- writes to `/var/backup/<namespace>/<pvc>/repo`
+- publishes repository metadata used later by restore
 
-## DaemonSet / RBAC Contract
-
-1. DaemonSet は `nodeSelector: backup-target=true` のみに配置。
-2. `hostPath /var/backup` を read-write mount する。
-3. heartbeat は 30 秒間隔で Lease 更新。
-4. sidecar SA には `leases` の `get/list/watch/create/update/patch` を付与。
-5. controller SA には `nodes` `leases` `persistentvolumeclaims` の読み/patch 権限を付与。
-
-## Failure Reasons
-
-- `AssignedNodeUnavailable`
-- `WriterEndpointNotReady`
-- `WriteSessionStartFailed`
-- `WriteStreamFailed`
-- `WriteCommitFailed`
-
-## Defaults
+## Operational Defaults
 
 - heartbeat interval: `30s`
 - stale threshold: `90s`
-- minimum available bytes: `10GiB`
-- automatic failover: disabled (v1)
-
-## Evidence Anchors
-
-- external-snapshot-metadata stream resume style:
-  - `/Users/molpako/src/github.com/kubernetes-csi/external-snapshot-metadata/proto/schema.proto:64`
-- external-snapshot-metadata stream timeout constant:
-  - `/Users/molpako/src/github.com/kubernetes-csi/external-snapshot-metadata/pkg/sidecar/sidecar.go:43`
-- ceph-csi CSI stream surface (metadata oriented):
-  - `/Users/molpako/src/github.com/ceph/ceph-csi/vendor/github.com/container-storage-interface/spec/lib/go/csi/csi_grpc.pb.go:1004`
-- Ceph RBD diff record semantics (`w`/`z`):
-  - `/Users/molpako/src/github.com/ceph/ceph/doc/dev/rbd-diff.rst:47`
+- minimum available bytes: `10 GiB`
+- automatic failover: disabled

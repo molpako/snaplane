@@ -1,2 +1,0 @@
-Reserved reference file.
-Not used for current backend operator design.

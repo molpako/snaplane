@@ -1,0 +1,17 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: writer-sidecar-server
+spec:
+  secretName: writer-sidecar-server-cert
+  commonName: writer-sidecar-server
+  duration: 2160h
+  renewBefore: 360h
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: writer-ca-issuer
+  usages:
+  - server auth
+  - digital signature
+  - key encipherment

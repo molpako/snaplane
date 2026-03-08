@@ -1,0 +1,17 @@
+apiVersion: snaplane.molpako.github.io/v1alpha1
+kind: Backup
+metadata:
+  labels:
+    app.kubernetes.io/name: snaplane
+    app.kubernetes.io/managed-by: kustomize
+  name: backup-sample
+spec:
+  policyRef:
+    name: backuppolicy-sample
+  volumeSnapshotRef:
+    name: backuppolicy-sample-20260223-010000
+  destination:
+    nodeName: node-a
+  transfer:
+    timeoutSeconds: 3600
+    backoffLimit: 3

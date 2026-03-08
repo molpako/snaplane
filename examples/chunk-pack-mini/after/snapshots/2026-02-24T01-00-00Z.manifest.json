@@ -1,0 +1,12 @@
+{
+  "manifestId": "2026-02-24T01-00-00Z",
+  "parent": "2026-02-23T01-00-00Z",
+  "slotSizeBytes": 100,
+  "changedSlots": {
+    "420": "ch_slot420_newx"
+  },
+  "allocatedDelta": {
+    "added": [],
+    "removed": []
+  }
+}

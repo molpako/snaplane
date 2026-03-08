@@ -1,0 +1,22 @@
+apiVersion: snaplane.molpako.github.io/v1alpha1
+kind: BackupPolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: snaplane
+    app.kubernetes.io/managed-by: kustomize
+  name: backuppolicy-sample
+spec:
+  source:
+    persistentVolumeClaimName: app-data-pvc
+    volumeSnapshotClassName: csi-rbdplugin-snapclass
+  schedule:
+    cron: "0 * * * *"
+    timeZone: "UTC"
+    suspend: false
+  dispatch:
+    mode: SerialOnly
+  retention:
+    keepDays: 7
+  transfer:
+    timeoutSeconds: 3600
+    backoffLimit: 6
