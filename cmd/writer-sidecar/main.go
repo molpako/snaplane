@@ -39,20 +39,22 @@ const (
 
 func main() {
 	var (
-		listenAddr     string
-		rootDir        string
-		heartbeat      time.Duration
-		tlsCertFile    string
-		tlsKeyFile     string
-		clientCAFile   string
-		leaseNamespace string
-		nodeName       string
-		podIP          string
+		listenAddr             string
+		rootDir                string
+		heartbeat              time.Duration
+		casMaintenanceInterval time.Duration
+		tlsCertFile            string
+		tlsKeyFile             string
+		clientCAFile           string
+		leaseNamespace         string
+		nodeName               string
+		podIP                  string
 	)
 
 	flag.StringVar(&listenAddr, "listen-address", defaultListenAddr, "gRPC listen address")
 	flag.StringVar(&rootDir, "backup-root", defaultRootDir, "Host path root where backup data is written")
 	flag.DurationVar(&heartbeat, "heartbeat-interval", defaultHeartbeat, "Lease heartbeat interval")
+	flag.DurationVar(&casMaintenanceInterval, "cas-maintenance-interval", writer.DefaultCASMaintenanceInterval, "Interval for CAS repository GC/compaction scans; set to 0 to disable")
 	flag.StringVar(&tlsCertFile, "tls-cert-file", "", "server TLS cert file")
 	flag.StringVar(&tlsKeyFile, "tls-key-file", "", "server TLS key file")
 	flag.StringVar(&clientCAFile, "client-ca-file", "", "client CA bundle file for mTLS")
@@ -103,6 +105,9 @@ func main() {
 			klog.Errorf("heartbeat loop terminated: %v", err)
 		}
 	}()
+	if os.Getenv(writer.EnvBackupWriteMode) == string(writer.WriteModeCAS) {
+		go writer.StartCASMaintenanceLoop(ctx, rootDir, casMaintenanceInterval)
+	}
 
 	go func() {
 		<-ctx.Done()
