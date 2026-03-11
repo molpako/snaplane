@@ -20,9 +20,16 @@ Snaplane e2e tests use `kubernetes-sigs/e2e-framework` and currently run in two 
 - controller settings:
   - `SNAPLANE_CBT_PROVIDER=snapshot-metadata`
   - `SNAPLANE_SNAPSHOT_DATA_MODE=live`
-- purpose: validate the more realistic integration path
+- purpose: validate the current hostpath-based SnapshotMetadata integration path
+
+## Planned Ceph Nightly Gate
+
+- status: not yet implemented
+- intended storage path: `ceph-csi` RBD plus `external-snapshot-metadata`
+- purpose: validate the production-intended CBT semantics and live incremental backup path
 
 ## Notes
 
 - the Make targets use `-count=1` to avoid stale `go test` cache results
 - e2e coverage should prefer real integrations over mocks
+- the current nightly lane is not the final production-like CBT gate; that role is reserved for the planned Ceph-backed lane

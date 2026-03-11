@@ -16,6 +16,7 @@ When an item is not implemented yet, track it in `TODO.md` instead of adding ano
 
 - `backup-data-model.md`
 - `storage-format-v1.md`
+- `cas-storage-overview.md`
 
 ## Historical Rationale Still Relevant
 
