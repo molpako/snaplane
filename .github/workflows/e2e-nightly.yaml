@@ -29,4 +29,34 @@ jobs:
           install_only: true
 
       - name: Run Nightly E2E
+        id: nightly
+        continue-on-error: true
         run: make test-e2e-nightly
+
+      - name: Collect Nightly Diagnostics
+        if: steps.nightly.outcome == 'failure'
+        run: |
+          mkdir -p artifacts/e2e-nightly
+          kubectl get pods -A -o wide > artifacts/e2e-nightly/pods.txt || true
+          kubectl get events -A --sort-by=.lastTimestamp > artifacts/e2e-nightly/events.txt || true
+          kubectl describe pod -n snaplane-system -l control-plane=controller-manager > artifacts/e2e-nightly/manager-pods-describe.txt || true
+          kubectl get secret,certificate,certificaterequest,issuer -n snaplane-system > artifacts/e2e-nightly/cert-manager.txt || true
+          kubectl get lease -A -o yaml > artifacts/e2e-nightly/leases.yaml || true
+          kubectl get pods -n snaplane-system -l control-plane=controller-manager -o name > artifacts/e2e-nightly/manager-pod-names.txt || true
+          while read -r pod; do
+            [ -n "$pod" ] || continue
+            safe_name="$(echo "$pod" | tr '/:' '__')"
+            kubectl logs -n snaplane-system "$pod" > "artifacts/e2e-nightly/${safe_name}.log" || true
+            kubectl logs -n snaplane-system --previous "$pod" > "artifacts/e2e-nightly/${safe_name}.previous.log" || true
+          done < artifacts/e2e-nightly/manager-pod-names.txt
+
+      - name: Upload Nightly Diagnostics
+        if: steps.nightly.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-nightly-diagnostics
+          path: artifacts/e2e-nightly
+
+      - name: Fail Job On Nightly Error
+        if: steps.nightly.outcome == 'failure'
+        run: exit 1

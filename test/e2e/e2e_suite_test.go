@@ -74,6 +74,7 @@ const (
 	hostPathRepoURLEnv      = "SNAPLANE_HOSTPATH_REPO_URL"
 	hostPathRepoRevisionEnv = "SNAPLANE_HOSTPATH_REPO_REVISION"
 	hostPathRepoCacheDir    = "test/e2e/.hostpath-driver"
+	managerLeaderLeaseName  = "b7cc5d87.molpako.github.io"
 )
 
 var (
@@ -222,6 +223,11 @@ func setupEnvironment(ctx context.Context, cfg *envconf.Config) (context.Context
 	deployTarget := deployTargetForMode(activeTLSMode)
 	if _, err := utils.Run(exec.Command("make", deployTarget, fmt.Sprintf("IMG=%s", projectImage))); err != nil {
 		return ctx, fmt.Errorf("deploy controller-manager via %s: %w", deployTarget, err)
+	}
+	if activeTLSMode == tlsModeCertManager {
+		if err := waitForNightlyTLSSecrets(ctx, cfg); err != nil {
+			return ctx, err
+		}
 	}
 	if err := wait.For(
 		conditions.New(cfg.Client().Resources()).DeploymentAvailable(managerDeploymentName, namespace),
@@ -632,6 +638,69 @@ spec:
 	cmd.Stdin = strings.NewReader(probe)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("probe cert-manager webhook: (%v) %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+type nightlyTLSSecretExpectation struct {
+	name            string
+	certificateName string
+	requiredKeys    []string
+}
+
+func waitForNightlyTLSSecrets(ctx context.Context, cfg *envconf.Config) error {
+	resources := cfg.Client().Resources()
+	if err := corev1.AddToScheme(resources.GetScheme()); err != nil {
+		return fmt.Errorf("add corev1 scheme for nightly tls wait: %w", err)
+	}
+
+	expectations := []nightlyTLSSecretExpectation{
+		{name: "writer-ca", certificateName: "snaplane-writer-ca", requiredKeys: []string{"tls.crt"}},
+		{name: "writer-client-cert", certificateName: "snaplane-writer-client", requiredKeys: []string{corev1.TLSCertKey, corev1.TLSPrivateKeyKey}},
+		{name: "writer-sidecar-server-cert", certificateName: "snaplane-writer-sidecar-server", requiredKeys: []string{corev1.TLSCertKey, corev1.TLSPrivateKeyKey}},
+	}
+
+	for _, expectation := range expectations {
+		if err := waitForNightlyTLSSecret(ctx, resources, expectation); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func waitForNightlyTLSSecret(ctx context.Context, resources *k8sresources.Resources, expectation nightlyTLSSecretExpectation) error {
+	if err := wait.For(func(ctx context.Context) (bool, error) {
+		var secret corev1.Secret
+		if err := resources.Get(ctx, expectation.name, namespace, &secret); err != nil {
+			if apierrors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		for _, key := range expectation.requiredKeys {
+			if len(secret.Data[key]) == 0 {
+				return false, nil
+			}
+		}
+		return certManagerCertificateReady(expectation.certificateName) == nil, nil
+	}, wait.WithTimeout(3*time.Minute), wait.WithInterval(2*time.Second)); err != nil {
+		return fmt.Errorf("wait nightly tls secret %s/%s: %w", namespace, expectation.name, err)
+	}
+	return nil
+}
+
+func certManagerCertificateReady(name string) error {
+	out, err := exec.Command(
+		"kubectl",
+		"-n", namespace,
+		"get", "certificate", name,
+		"-o", "jsonpath={range .status.conditions[?(@.type==\"Ready\")]}{.status}{end}",
+	).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("get certificate %s readiness: (%v) %s", name, err, strings.TrimSpace(string(out)))
+	}
+	if strings.TrimSpace(string(out)) != "True" {
+		return fmt.Errorf("certificate %s is not Ready", name)
 	}
 	return nil
 }
@@ -1054,29 +1123,7 @@ func setRealCBTProviderOnManager(ctx context.Context) error {
 		"SNAPLANE_SNAPSHOT_DATA_MODE":  "live",
 		"SNAPLANE_CAS_MAX_CHAIN_DEPTH": "1024",
 	}
-	err = wait.For(func(ctx context.Context) (bool, error) {
-		pods, listErr := kubeClient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
-			LabelSelector: "control-plane=controller-manager",
-		})
-		if listErr != nil {
-			return false, listErr
-		}
-		for _, pod := range pods.Items {
-			if pod.DeletionTimestamp != nil {
-				continue
-			}
-			if !podReady(&pod) {
-				continue
-			}
-			if _, exists := existingUIDs[string(pod.UID)]; !exists {
-				return true, nil
-			}
-			if managerPodHasEnv(&pod, desiredEnv) {
-				return true, nil
-			}
-		}
-		return false, nil
-	}, wait.WithTimeout(3*time.Minute), wait.WithInterval(2*time.Second))
+	_, err = waitForUsableManagerPod(ctx, kubeClient, existingUIDs, desiredEnv)
 	if err != nil {
 		return fmt.Errorf("wait updated manager pod after CBT provider env change: %w", err)
 	}
@@ -1107,6 +1154,65 @@ func listManagerPodUIDs(ctx context.Context, kubeClient kubernetes.Interface) (m
 		uids[string(pod.UID)] = struct{}{}
 	}
 	return uids, nil
+}
+
+func waitForUsableManagerPod(
+	ctx context.Context,
+	kubeClient kubernetes.Interface,
+	existingUIDs map[string]struct{},
+	desiredEnv map[string]string,
+) (*corev1.Pod, error) {
+	var usablePod *corev1.Pod
+	err := wait.For(func(ctx context.Context) (bool, error) {
+		pods, listErr := kubeClient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: "control-plane=controller-manager",
+		})
+		if listErr != nil {
+			return false, listErr
+		}
+		for i := range pods.Items {
+			pod := pods.Items[i]
+			if pod.DeletionTimestamp != nil || !podReady(&pod) {
+				continue
+			}
+			if desiredEnv != nil && !managerPodHasEnv(&pod, desiredEnv) {
+				continue
+			}
+			if existingUIDs != nil {
+				if _, exists := existingUIDs[string(pod.UID)]; exists {
+					continue
+				}
+			}
+			holderIdentity, leaseErr := managerLeaderHolderIdentity(ctx, kubeClient)
+			if leaseErr != nil {
+				return false, leaseErr
+			}
+			if holderIdentity != pod.Name {
+				continue
+			}
+			usablePod = pod.DeepCopy()
+			return true, nil
+		}
+		return false, nil
+	}, wait.WithTimeout(3*time.Minute), wait.WithInterval(2*time.Second))
+	if err != nil {
+		return nil, err
+	}
+	return usablePod, nil
+}
+
+func managerLeaderHolderIdentity(ctx context.Context, kubeClient kubernetes.Interface) (string, error) {
+	leaderLease, err := kubeClient.CoordinationV1().Leases(namespace).Get(ctx, managerLeaderLeaseName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	if leaderLease.Spec.HolderIdentity == nil {
+		return "", nil
+	}
+	return *leaderLease.Spec.HolderIdentity, nil
 }
 
 func podReady(pod *corev1.Pod) bool {

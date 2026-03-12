@@ -112,10 +112,57 @@ func registerFailureDiagnostics(t *testing.T) {
 
 		dumpCommandOutput(t, exec.Command(
 			"kubectl",
+			"get",
+			"pods",
+			"-A",
+			"-o",
+			"wide",
+		))
+		dumpCommandOutput(t, exec.Command(
+			"kubectl",
 			"logs",
 			"deployment/"+managerDeploymentName,
 			"-n",
 			namespace,
+		))
+		dumpCommandOutput(t, exec.Command(
+			"kubectl",
+			"describe",
+			"deployment",
+			managerDeploymentName,
+			"-n",
+			namespace,
+		))
+		dumpCommandOutput(t, exec.Command(
+			"kubectl",
+			"describe",
+			"pod",
+			"-n",
+			namespace,
+			"-l",
+			"control-plane=controller-manager",
+		))
+		dumpCommandOutput(t, exec.Command(
+			"kubectl",
+			"get",
+			"secret,certificate,certificaterequest,issuer",
+			"-n",
+			namespace,
+		))
+		dumpCommandOutput(t, exec.Command(
+			"kubectl",
+			"get",
+			"lease",
+			"-A",
+			"-o",
+			"yaml",
+		))
+		dumpCommandOutput(t, exec.Command(
+			"kubectl",
+			"get",
+			"events",
+			"-A",
+			"--sort-by=.lastTimestamp",
 		))
 		dumpCommandOutput(t, exec.Command(
 			"kubectl",

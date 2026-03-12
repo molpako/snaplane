@@ -12,7 +12,6 @@ import (
 	volumesnapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	snaplanev1alpha1 "github.com/molpako/snaplane/api/v1alpha1"
 	"github.com/molpako/snaplane/internal/writer"
-	appsv1 "k8s.io/api/apps/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -231,6 +230,7 @@ func featureRetryableEndpointRecoveryCompletesBackup() features.Feature {
 
 			endpoint := waitForStandaloneWriterEndpoint(ctx, t, c, recoveryWriterPodName)
 			updateWriterLeaseEndpoint(ctx, t, c, namespace, state.lowNode, endpoint)
+			waitForBackupToMovePastRetry(ctx, t, c, state.namespace, backupName, retryObserved.Status.Retry.Attempt)
 
 			var completed snaplanev1alpha1.Backup
 			err = wait.For(func(ctx context.Context) (bool, error) {
@@ -318,6 +318,7 @@ func featureRetryRecoverySurvivesControllerRestart() features.Feature {
 			endpoint := waitForStandaloneWriterEndpoint(ctx, t, c, recoveryWriterPodName)
 			updateWriterLeaseEndpoint(ctx, t, c, namespace, state.lowNode, endpoint)
 			restartControllerManagerPod(ctx, t, c)
+			waitForBackupToMovePastRetry(ctx, t, c, state.namespace, backupName, retryObserved.Status.Retry.Attempt)
 
 			var completed snaplanev1alpha1.Backup
 			err = wait.For(func(ctx context.Context) (bool, error) {
@@ -422,6 +423,15 @@ func createStandaloneWriterPod(ctx context.Context, t *testing.T, c ctrlclient.C
 func restartControllerManagerPod(ctx context.Context, t *testing.T, c ctrlclient.Client) {
 	t.Helper()
 
+	kubeClient, err := operatorKubeClient()
+	if err != nil {
+		t.Fatalf("build kubernetes client for manager restart: %v", err)
+	}
+	existingUIDs, err := listManagerPodUIDs(ctx, kubeClient)
+	if err != nil {
+		t.Fatalf("list controller-manager pods before restart: %v", err)
+	}
+
 	var pods corev1.PodList
 	if err := c.List(
 		ctx,
@@ -439,18 +449,40 @@ func restartControllerManagerPod(ctx context.Context, t *testing.T, c ctrlclient
 		t.Fatalf("delete controller-manager pod %s/%s: %v", target.Namespace, target.Name, err)
 	}
 
+	_, err = waitForUsableManagerPod(ctx, kubeClient, existingUIDs, nil)
+	if err != nil {
+		t.Fatalf("wait controller-manager recovery after restart: %v", err)
+	}
+}
+
+func waitForBackupToMovePastRetry(
+	ctx context.Context,
+	t *testing.T,
+	c ctrlclient.Client,
+	backupNamespace, backupName string,
+	lastAttempt int32,
+) {
+	t.Helper()
+
 	err := wait.For(func(ctx context.Context) (bool, error) {
-		var deploy appsv1.Deployment
-		if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: managerDeploymentName}, &deploy); err != nil {
+		var observed snaplanev1alpha1.Backup
+		if err := c.Get(ctx, types.NamespacedName{Namespace: backupNamespace, Name: backupName}, &observed); err != nil {
 			if apierrors.IsNotFound(err) {
 				return false, nil
 			}
 			return false, err
 		}
-		return deploy.Status.AvailableReplicas >= 1, nil
+		succeeded := meta.FindStatusCondition(observed.Status.Conditions, snaplanev1alpha1.BackupConditionSucceeded)
+		if succeeded != nil && succeeded.Status == metav1.ConditionTrue {
+			return true, nil
+		}
+		if observed.Status.Retry.Attempt > lastAttempt {
+			return true, nil
+		}
+		return false, nil
 	}, wait.WithTimeout(schedulerE2ETimeout), wait.WithInterval(schedulerE2EPoll))
 	if err != nil {
-		t.Fatalf("wait controller-manager recovery after restart: %v", err)
+		t.Fatalf("wait for backup %s/%s to move past retry attempt %d: %v", backupNamespace, backupName, lastAttempt, err)
 	}
 }
 
