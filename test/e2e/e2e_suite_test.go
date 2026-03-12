@@ -40,6 +40,7 @@ import (
 
 	smsv1alpha1 "github.com/kubernetes-csi/external-snapshot-metadata/client/apis/snapshotmetadataservice/v1alpha1"
 	smsclientset "github.com/kubernetes-csi/external-snapshot-metadata/client/clientset/versioned"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1102,6 +1103,11 @@ func setRealCBTProviderOnManager(ctx context.Context) error {
 		return err
 	}
 
+	existingDeployment, err := kubeClient.AppsV1().Deployments(namespace).Get(ctx, managerDeploymentName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get controller-manager deployment before env update: %w", err)
+	}
+
 	existingUIDs, err := listManagerPodUIDs(ctx, kubeClient)
 	if err != nil {
 		return err
@@ -1123,7 +1129,10 @@ func setRealCBTProviderOnManager(ctx context.Context) error {
 		"SNAPLANE_SNAPSHOT_DATA_MODE":  "live",
 		"SNAPLANE_CAS_MAX_CHAIN_DEPTH": "1024",
 	}
-	_, err = waitForUsableManagerPod(ctx, kubeClient, existingUIDs, desiredEnv)
+	if err := waitForManagerDeploymentEnvRollout(ctx, kubeClient, existingDeployment.Generation, desiredEnv); err != nil {
+		return fmt.Errorf("wait controller-manager rollout after CBT provider env change: %w", err)
+	}
+	_, err = waitForUsableManagerPod(ctx, kubeClient, existingUIDs, desiredEnv, false)
 	if err != nil {
 		return fmt.Errorf("wait updated manager pod after CBT provider env change: %w", err)
 	}
@@ -1161,6 +1170,7 @@ func waitForUsableManagerPod(
 	kubeClient kubernetes.Interface,
 	existingUIDs map[string]struct{},
 	desiredEnv map[string]string,
+	requireLeader bool,
 ) (*corev1.Pod, error) {
 	var usablePod *corev1.Pod
 	err := wait.For(func(ctx context.Context) (bool, error) {
@@ -1183,12 +1193,14 @@ func waitForUsableManagerPod(
 					continue
 				}
 			}
-			holderIdentity, leaseErr := managerLeaderHolderIdentity(ctx, kubeClient)
-			if leaseErr != nil {
-				return false, leaseErr
-			}
-			if holderIdentity != pod.Name {
-				continue
+			if requireLeader {
+				holderIdentity, leaseErr := managerLeaderHolderIdentity(ctx, kubeClient)
+				if leaseErr != nil {
+					return false, leaseErr
+				}
+				if holderIdentity != pod.Name {
+					continue
+				}
 			}
 			usablePod = pod.DeepCopy()
 			return true, nil
@@ -1199,6 +1211,43 @@ func waitForUsableManagerPod(
 		return nil, err
 	}
 	return usablePod, nil
+}
+
+func waitForManagerDeploymentEnvRollout(
+	ctx context.Context,
+	kubeClient kubernetes.Interface,
+	previousGeneration int64,
+	desiredEnv map[string]string,
+) error {
+	return wait.For(func(ctx context.Context) (bool, error) {
+		deployment, err := kubeClient.AppsV1().Deployments(namespace).Get(ctx, managerDeploymentName, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		if !deploymentHasEnv(deployment, desiredEnv) {
+			return false, nil
+		}
+		if deployment.Generation <= previousGeneration {
+			return false, nil
+		}
+		if deployment.Status.ObservedGeneration < deployment.Generation {
+			return false, nil
+		}
+		replicas := int32(1)
+		if deployment.Spec.Replicas != nil {
+			replicas = *deployment.Spec.Replicas
+		}
+		if deployment.Status.UpdatedReplicas < replicas {
+			return false, nil
+		}
+		if deployment.Status.AvailableReplicas < replicas {
+			return false, nil
+		}
+		if deployment.Status.UnavailableReplicas > 0 {
+			return false, nil
+		}
+		return true, nil
+	}, wait.WithTimeout(3*time.Minute), wait.WithInterval(2*time.Second))
 }
 
 func managerLeaderHolderIdentity(ctx context.Context, kubeClient kubernetes.Interface) (string, error) {
@@ -1226,6 +1275,25 @@ func podReady(pod *corev1.Pod) bool {
 
 func managerPodHasEnv(pod *corev1.Pod, desired map[string]string) bool {
 	for _, container := range pod.Spec.Containers {
+		if container.Name != "manager" {
+			continue
+		}
+		actual := make(map[string]string, len(container.Env))
+		for _, envVar := range container.Env {
+			actual[envVar.Name] = envVar.Value
+		}
+		for key, value := range desired {
+			if actual[key] != value {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func deploymentHasEnv(deployment *appsv1.Deployment, desired map[string]string) bool {
+	for _, container := range deployment.Spec.Template.Spec.Containers {
 		if container.Name != "manager" {
 			continue
 		}
