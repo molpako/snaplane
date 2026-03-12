@@ -449,7 +449,7 @@ func restartControllerManagerPod(ctx context.Context, t *testing.T, c ctrlclient
 		t.Fatalf("delete controller-manager pod %s/%s: %v", target.Namespace, target.Name, err)
 	}
 
-	_, err = waitForUsableManagerPod(ctx, kubeClient, existingUIDs, nil)
+	_, err = waitForUsableManagerPod(ctx, kubeClient, existingUIDs, nil, true)
 	if err != nil {
 		t.Fatalf("wait controller-manager recovery after restart: %v", err)
 	}
