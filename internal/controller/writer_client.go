@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 
 	writerv1 "github.com/molpako/snaplane/api/proto/writer/v1"
@@ -61,14 +62,36 @@ func (f *GRPCWriterClientFactory) New(ctx context.Context, endpoint string) (Wri
 		defer cancel()
 	}
 
-	conn, err := grpc.DialContext(ctx, endpoint,
+	conn, err := grpc.NewClient(endpoint,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
-		grpc.WithBlock(),
 	)
 	if err != nil {
 		return nil, err
 	}
+	if err := waitForGRPCReady(ctx, conn); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
 	return &grpcWriterClient{conn: conn, client: writerv1.NewLocalBackupWriterClient(conn)}, nil
+}
+
+func waitForGRPCReady(ctx context.Context, conn *grpc.ClientConn) error {
+	conn.Connect()
+	for {
+		state := conn.GetState()
+		if state == connectivity.Ready {
+			return nil
+		}
+		if state == connectivity.Shutdown {
+			return fmt.Errorf("grpc connection shut down")
+		}
+		if !conn.WaitForStateChange(ctx, state) {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return fmt.Errorf("grpc connection did not become ready")
+		}
+	}
 }
 
 func (f *GRPCWriterClientFactory) buildClientTLSConfig() (*tls.Config, error) {
