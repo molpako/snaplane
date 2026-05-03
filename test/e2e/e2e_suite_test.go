@@ -1198,7 +1198,7 @@ func waitForUsableManagerPod(
 				if leaseErr != nil {
 					return false, leaseErr
 				}
-				if holderIdentity != pod.Name {
+				if !managerLeaderIdentityMatchesPod(holderIdentity, pod.Name) {
 					continue
 				}
 			}
@@ -1262,6 +1262,10 @@ func managerLeaderHolderIdentity(ctx context.Context, kubeClient kubernetes.Inte
 		return "", nil
 	}
 	return *leaderLease.Spec.HolderIdentity, nil
+}
+
+func managerLeaderIdentityMatchesPod(holderIdentity, podName string) bool {
+	return holderIdentity == podName || strings.HasPrefix(holderIdentity, podName+"_")
 }
 
 func podReady(pod *corev1.Pod) bool {
