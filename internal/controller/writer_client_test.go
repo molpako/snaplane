@@ -99,16 +99,17 @@ func TestMTLSServerRejectsConnectionWithoutClientCertificate(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	conn, err := grpc.DialContext(
-		ctx,
+	conn, err := grpc.NewClient(
 		endpoint,
 		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
 			MinVersion: tls.VersionTLS12,
 			RootCAs:    roots,
 			ServerName: "localhost",
 		})),
-		grpc.WithBlock(),
 	)
+	if err == nil {
+		err = waitForGRPCReady(ctx, conn)
+	}
 	if err == nil {
 		_ = conn.Close()
 		t.Fatalf("expected mTLS handshake failure without client certificate")

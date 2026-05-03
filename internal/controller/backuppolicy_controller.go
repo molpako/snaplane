@@ -106,8 +106,6 @@ func (r *BackupPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	oldPolicy := policy.DeepCopy()
 	now := time.Now().UTC()
-	sg := serialGuard{satisfied: true, reason: "SerialGuardSatisfied", message: "serial guard is satisfied"}
-
 	queueHealth, err := r.ensureScheduleAndManualSnapshots(ctx, &policy, now)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -117,7 +115,7 @@ func (r *BackupPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	sg, err = r.dispatchOldestPending(ctx, &policy, now)
+	sg, err := r.dispatchOldestPending(ctx, &policy, now)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

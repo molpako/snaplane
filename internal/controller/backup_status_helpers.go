@@ -7,11 +7,6 @@ import (
 	snaplanev1alpha1 "github.com/molpako/snaplane/api/v1alpha1"
 )
 
-func backupHasConditionTrue(backup *snaplanev1alpha1.Backup, conditionType string) bool {
-	cond := meta.FindStatusCondition(backup.Status.Conditions, conditionType)
-	return cond != nil && cond.Status == metav1.ConditionTrue
-}
-
 func backupConditionStatus(backup *snaplanev1alpha1.Backup, conditionType string) metav1.ConditionStatus {
 	if backup == nil {
 		return metav1.ConditionUnknown

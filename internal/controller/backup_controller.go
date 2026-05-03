@@ -487,7 +487,6 @@ func buildFrameProducer(
 				}); err != nil {
 					return err
 				}
-				cursor = effectiveOffset
 			}
 
 			switch rg.Kind {
