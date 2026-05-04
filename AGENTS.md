@@ -27,7 +27,8 @@ Snaplane is a Kubernetes operator for block-volume backup and restore with:
 9. docs/design-docs/restore-volume-populator-contract.md
 10. docs/design-docs/backup-data-model.md
 11. docs/design-docs/storage-format-v1.md
-12. docs/design-docs/volumereplication-non-adoption.md
+12. docs/design-docs/cas-storage-overview.md
+13. docs/design-docs/volumereplication-non-adoption.md
 
 ## Source Of Truth
 
@@ -36,6 +37,14 @@ Snaplane is a Kubernetes operator for block-volume backup and restore with:
 - Stable design notes: docs/design-docs
 - Open work only: TODO.md
 
+## Repository Layout
+
+- `api/`: v1alpha1 API types.
+- `cmd/`: binaries for the controller manager, writer sidecar, and restore populator.
+- `config/`: CRDs, RBAC, manager manifests, writer-sidecar manifests, and restore-populator manifests.
+- `internal/`: controller logic, writer server, restore worker, and CAS repository code.
+- `test/e2e/`: end-to-end coverage and lane documentation.
+- `docs/design-docs/`: retained design documents that still match the codebase.
 
 ## Working Rules
 

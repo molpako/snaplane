@@ -7,7 +7,7 @@ Snaplane v1 keeps `BackupPolicy` as the backup orchestration source of truth.
 
 ## Reasoning
 
-- Snaplane manages backup generations and restore points outside Ceph.
+- Snaplane manages backup generations and restore points outside the source CSI backend.
 - Snaplane needs cron scheduling, retention, queue ordering, and restore metadata publication.
 - `VolumeReplication` is designed around DR replication state, not backup archive lifecycle.
 - Replacing `BackupPolicy` with `VolumeReplication` would still require Snaplane-specific policy annotations and controller logic.
