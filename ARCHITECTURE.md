@@ -104,7 +104,7 @@ Rules:
 - automatic destination failover
 - GC and compaction runtime execution
 - a production-ready SnapshotMetadata-backed CBT data path
-- a Ceph-backed nightly CBT gate; the current nightly lane remains a hostpath-based integration lane
+- a CBT-capable CSI backend nightly gate; the current nightly lane remains a hostpath-based integration lane
 - benchmark and performance tuning work
 
 Those items stay in `TODO.md`.

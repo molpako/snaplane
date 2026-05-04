@@ -2,7 +2,8 @@
 
 Snaplane is a Kubernetes operator for block-volume backup and restore.
 
-Current implemented direction:
+## Overview
+
 - `BackupPolicy` schedules and dispatches backups
 - `Backup` represents one transfer execution
 - `VolumeSnapshot` is the consistency point and queue carrier
@@ -22,21 +23,6 @@ Current implemented direction:
 - restore populator
   - registers `sourceKind=Backup`
   - restores `mock-image-v1` and `cas-v1` backups
-
-## Repository Layout
-
-- `api/`
-  - v1alpha1 API types
-- `cmd/`
-  - binaries for the controller manager, writer sidecar, and restore populator
-- `config/`
-  - CRDs, RBAC, manager manifests, writer-sidecar manifests, and restore-populator manifests
-- `internal/`
-  - controller logic, writer server, restore worker, and CAS repository code
-- `test/e2e/`
-  - end-to-end coverage and lane documentation
-- `docs/design-docs/`
-  - retained design documents that still match the codebase
 
 ## Current Status
 

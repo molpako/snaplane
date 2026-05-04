@@ -2,8 +2,8 @@
 
 ## Runtime Gaps
 
-- Implement a real SnapshotMetadata-backed range provider and data reader for Ceph-backed incremental backups.
-- Replace the hostpath-based nightly SnapshotMetadata lane with a Ceph-backed nightly CBT gate.
+- Implement a real SnapshotMetadata-backed range provider and data reader for a CBT-capable CSI backend.
+- Replace the hostpath-based nightly SnapshotMetadata lane with a CBT-capable CSI backend gate.
 - Implement repository GC and compaction execution for CAS mode.
 - Add an operational rollout and runbook for writer-sidecar and cert-manager rotation on a real cluster.
 - Add a real-cluster e2e gate for writer heartbeats, mTLS, and restore workflows.
