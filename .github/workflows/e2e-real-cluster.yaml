@@ -41,7 +41,7 @@ jobs:
         run: |
           minikube start \
             --profile=snaplane-real \
-            --driver=qemu \
+            --driver=qemu2 \
             --container-runtime=containerd \
             --cpus=4 \
             --memory=8192 \
