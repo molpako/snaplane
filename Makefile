@@ -118,7 +118,7 @@ test-e2e-real-cluster: manifests generate fmt vet ## Run real-cluster e2e gate a
 
 .PHONY: test-e2e-ceph-nightly
 test-e2e-ceph-nightly: manifests generate fmt vet ## Run Ceph-backed nightly CBT gate against current kubeconfig and preinstalled Ceph CSI/SnapshotMetadataService.
-	E2E_REAL_CLUSTER=true E2E_TLS_MODE=cert-manager E2E_USE_REAL_CBT_PROVIDER=true E2E_STORAGE_CLASS="$(E2E_STORAGE_CLASS)" E2E_VOLUME_SNAPSHOT_CLASS="$(E2E_VOLUME_SNAPSHOT_CLASS)" IMG=$(IMG) go test -count=1 -timeout=60m -tags=e2e ./test/e2e/ -run TestBackupRetryScenarios -v
+	E2E_REAL_CLUSTER=true E2E_TLS_MODE=cert-manager E2E_USE_REAL_CBT_PROVIDER=true E2E_STORAGE_CLASS="$(E2E_STORAGE_CLASS)" E2E_VOLUME_SNAPSHOT_CLASS="$(E2E_VOLUME_SNAPSHOT_CLASS)" IMG=$(IMG) go test -count=1 -timeout=75m -tags=e2e ./test/e2e/ -run 'TestBackupRetryScenarios|TestIncrementalBackupGenerations' -v
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

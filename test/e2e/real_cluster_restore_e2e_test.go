@@ -180,7 +180,7 @@ func createRealClusterPopulatorParams(ctx context.Context, t *testing.T, kubeCli
 					corev1.ResourceStorage: resource.MustParse("16Mi"),
 				},
 			},
-			VolumeMode: &volumeMode,
+			VolumeMode:       &volumeMode,
 			StorageClassName: &storageClassName,
 		},
 	}
