@@ -19,6 +19,11 @@ const (
 	defaultLockStaleAfter       = 15 * time.Minute
 	envCASLockStaleAfter        = "SNAPLANE_CAS_LOCK_STALE_AFTER"
 
+	repoVersionV1   = 1
+	indexVersionV1  = 1
+	chunkHashSHA256 = "sha256"
+	codecNone       = "none"
+
 	stateAllocated = "allocated"
 	stateFreed     = "freed"
 )
@@ -361,6 +366,9 @@ func ensureRepoMeta(repoPath string) (*repoMeta, error) {
 		if err := json.Unmarshal(data, meta); err != nil {
 			return nil, fmt.Errorf("decode repo.json: %w", err)
 		}
+		if err := validateRepoMeta(meta); err != nil {
+			return nil, err
+		}
 		if meta.ChunkSizeBytes <= 0 {
 			meta.ChunkSizeBytes = DefaultChunkSize
 		}
@@ -376,15 +384,28 @@ func ensureRepoMeta(repoPath string) (*repoMeta, error) {
 		RepoVersion:         1,
 		RepoUUID:            randomHexID(),
 		ChunkSizeBytes:      DefaultChunkSize,
-		ChunkHash:           "sha256",
+		ChunkHash:           chunkHashSHA256,
 		PackTargetSizeBytes: defaultPackTargetSize,
-		Compression:         "none",
+		Compression:         codecNone,
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
 	}
 	if err := atomicWriteJSON(metaPath, meta, 0o640); err != nil {
 		return nil, fmt.Errorf("write repo.json: %w", err)
 	}
 	return meta, nil
+}
+
+func validateRepoMeta(meta *repoMeta) error {
+	if meta.RepoVersion != repoVersionV1 {
+		return fmt.Errorf("unsupported repository version %d", meta.RepoVersion)
+	}
+	if meta.ChunkHash != "" && meta.ChunkHash != chunkHashSHA256 {
+		return fmt.Errorf("unsupported chunk hash %q", meta.ChunkHash)
+	}
+	if meta.Compression != "" && meta.Compression != codecNone {
+		return fmt.Errorf("unsupported repository compression %q", meta.Compression)
+	}
+	return nil
 }
 
 func readLatestManifestID(repoPath string) (string, error) {
@@ -401,6 +422,9 @@ func loadGlobalIndex(repoPath string) (map[string]indexEntry, *activeIndex, erro
 	if data, err := os.ReadFile(activePath); err == nil {
 		if err := json.Unmarshal(data, active); err != nil {
 			return nil, nil, fmt.Errorf("decode active index: %w", err)
+		}
+		if active.Version != indexVersionV1 {
+			return nil, nil, fmt.Errorf("unsupported active index version %d", active.Version)
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, nil, fmt.Errorf("read active index: %w", err)
@@ -424,6 +448,9 @@ func loadGlobalIndex(repoPath string) (map[string]indexEntry, *activeIndex, erro
 			return nil, nil, fmt.Errorf("decode segment %q: %w", seg, err)
 		}
 		for _, e := range entries {
+			if err := validateIndexEntry(e); err != nil {
+				return nil, nil, fmt.Errorf("invalid index segment %q entry for chunk %q: %w", seg, e.ChunkID, err)
+			}
 			index[e.ChunkID] = e
 		}
 	}
@@ -447,6 +474,28 @@ func loadPackIndex(path string) ([]packIndexEntry, error) {
 		return nil, fmt.Errorf("decode pack index: %w", err)
 	}
 	return entries, nil
+}
+
+func validateIndexEntry(entry indexEntry) error {
+	if entry.ChunkID == "" {
+		return fmt.Errorf("chunkID is required")
+	}
+	if entry.PackID <= 0 {
+		return fmt.Errorf("packID must be > 0")
+	}
+	if entry.PackOffset < 0 {
+		return fmt.Errorf("packOffset must be >= 0")
+	}
+	if entry.StoredLength <= 0 {
+		return fmt.Errorf("storedLength must be > 0")
+	}
+	if entry.RawLength <= 0 {
+		return fmt.Errorf("rawLength must be > 0")
+	}
+	if entry.Codec != "" && entry.Codec != codecNone {
+		return fmt.Errorf("unsupported codec %q", entry.Codec)
+	}
+	return nil
 }
 
 func currentPackID(repoPath string) (int, error) {

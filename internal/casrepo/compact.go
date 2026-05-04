@@ -1,12 +1,14 @@
 package casrepo
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // CompactResult describes the outcome of one repository compaction run.
@@ -43,6 +45,10 @@ func Compact(repositoryPath string) (*CompactResult, error) {
 	}
 	defer unlock()
 
+	return compactLocked(repoPath)
+}
+
+func compactLocked(repoPath string) (*CompactResult, error) {
 	meta, err := ensureRepoMeta(repoPath)
 	if err != nil {
 		return nil, err
@@ -138,7 +144,10 @@ func collectReachableChunkIDs(repoPath string) ([]string, map[string]struct{}, e
 		}
 		manifestIDs = append(manifestIDs, manifestID)
 		for _, change := range changes {
-			if change.State == stateAllocated && change.ChunkID != "" {
+			if err := validateChangeRecord(change); err != nil {
+				return nil, nil, fmt.Errorf("invalid change record in manifest %q: %w", manifestID, err)
+			}
+			if change.State == stateAllocated {
 				reachable[change.ChunkID] = struct{}{}
 			}
 		}
@@ -159,6 +168,12 @@ func loadManifest(path string) (*manifest, error) {
 	if mf.Segments.Change == "" {
 		return nil, fmt.Errorf("manifest %q has empty change segment", path)
 	}
+	if mf.Volume.ChunkSizeBytes <= 0 {
+		return nil, fmt.Errorf("manifest %q has invalid chunk size %d", path, mf.Volume.ChunkSizeBytes)
+	}
+	if mf.Volume.SizeBytes < 0 {
+		return nil, fmt.Errorf("manifest %q has invalid volume size %d", path, mf.Volume.SizeBytes)
+	}
 	return &mf, nil
 }
 
@@ -175,6 +190,22 @@ func loadChangeRecords(path string) ([]changeRecord, error) {
 		return nil, fmt.Errorf("decode change segment %q: %w", path, err)
 	}
 	return records, nil
+}
+
+func validateChangeRecord(change changeRecord) error {
+	switch change.State {
+	case stateAllocated:
+		if change.ChunkID == "" {
+			return fmt.Errorf("allocated chunk %d has empty chunkID", change.ChunkIndex)
+		}
+	case stateFreed:
+		if change.ChunkID != "" {
+			return fmt.Errorf("freed chunk %d must not carry chunkID", change.ChunkIndex)
+		}
+	default:
+		return fmt.Errorf("unknown change state %q", change.State)
+	}
+	return nil
 }
 
 func rewriteReachableData(repoPath string, meta *repoMeta, entries []indexEntry, nextPackID int, nextSegment int) ([]string, int, error) {
@@ -286,6 +317,9 @@ func rewriteReachableData(repoPath string, meta *repoMeta, entries []indexEntry,
 }
 
 func readChunkPayload(repoPath string, entry indexEntry) ([]byte, error) {
+	if err := validateIndexEntry(entry); err != nil {
+		return nil, err
+	}
 	packPath := filepath.Join(repoPath, "packs", fmt.Sprintf("pack-%06d.pack", entry.PackID))
 	f, err := os.Open(filepath.Clean(packPath))
 	if err != nil {
@@ -294,8 +328,12 @@ func readChunkPayload(repoPath string, entry indexEntry) ([]byte, error) {
 	defer f.Close()
 
 	payload := make([]byte, entry.StoredLength)
-	if _, err := f.ReadAt(payload, entry.PackOffset); err != nil && err != io.EOF {
+	if _, err := f.ReadAt(payload, entry.PackOffset); err != nil {
 		return nil, fmt.Errorf("read chunk %q payload from %q: %w", entry.ChunkID, packPath, err)
+	}
+	sum := sha256.Sum256(payload)
+	if !strings.EqualFold(hex.EncodeToString(sum[:]), entry.ChunkID) {
+		return nil, fmt.Errorf("chunk checksum mismatch for chunkID %q", entry.ChunkID)
 	}
 	return payload, nil
 }

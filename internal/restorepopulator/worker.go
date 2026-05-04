@@ -28,6 +28,9 @@ type WorkerOptions struct {
 const (
 	defaultCASMaxChainDepth = 1024
 	envCASMaxChainDepth     = "SNAPLANE_CAS_MAX_CHAIN_DEPTH"
+
+	casRepoVersionV1  = 1
+	casIndexVersionV1 = 1
 )
 
 // RunWorker restores one backup object by copying source data into target block device.
@@ -89,6 +92,7 @@ func runMockWorker(sourcePath string, targetDevice string) error {
 }
 
 type casManifest struct {
+	ManifestID       string `json:"manifestID"`
 	ParentManifestID string `json:"parentManifestID,omitempty"`
 	Volume           struct {
 		SizeBytes      int64 `json:"sizeBytes"`
@@ -99,6 +103,12 @@ type casManifest struct {
 	} `json:"segments"`
 }
 
+type casRepoMeta struct {
+	RepoVersion int    `json:"repoVersion"`
+	ChunkHash   string `json:"chunkHash"`
+	Compression string `json:"compression"`
+}
+
 type casChangeRecord struct {
 	ChunkIndex uint64 `json:"chunkIndex"`
 	ChunkID    string `json:"chunkID,omitempty"`
@@ -106,6 +116,7 @@ type casChangeRecord struct {
 }
 
 type casActiveIndex struct {
+	Version  int      `json:"version"`
 	Segments []string `json:"segments"`
 }
 
@@ -114,6 +125,7 @@ type casIndexEntry struct {
 	PackID       int    `json:"packID"`
 	PackOffset   int64  `json:"packOffset"`
 	StoredLength int64  `json:"storedLength"`
+	RawLength    int64  `json:"rawLength"`
 	Codec        string `json:"codec"`
 }
 
@@ -123,6 +135,9 @@ type casResolvedChunk struct {
 }
 
 func runCASWorker(opts WorkerOptions) error {
+	if err := validateCASRepoMeta(filepath.Join(opts.SourceDir, "repo.json")); err != nil {
+		return err
+	}
 	manifestPath := filepath.Join(opts.SourceDir, "snapshots", opts.ManifestID, "manifest.json")
 	latest, err := loadCASManifest(manifestPath)
 	if err != nil {
@@ -226,6 +241,27 @@ func runCASWorker(opts WorkerOptions) error {
 	return nil
 }
 
+func validateCASRepoMeta(path string) error {
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return fmt.Errorf("read repo metadata %q: %w", path, err)
+	}
+	var meta casRepoMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return fmt.Errorf("decode repo metadata %q: %w", path, err)
+	}
+	if meta.RepoVersion != casRepoVersionV1 {
+		return fmt.Errorf("unsupported repository version %d", meta.RepoVersion)
+	}
+	if meta.ChunkHash != "" && meta.ChunkHash != "sha256" {
+		return fmt.Errorf("unsupported chunk hash %q", meta.ChunkHash)
+	}
+	if meta.Compression != "" && meta.Compression != "none" {
+		return fmt.Errorf("unsupported repository compression %q", meta.Compression)
+	}
+	return nil
+}
+
 func loadCASManifest(path string) (*casManifest, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
@@ -237,6 +273,12 @@ func loadCASManifest(path string) (*casManifest, error) {
 	}
 	if manifest.Segments.Change == "" {
 		return nil, fmt.Errorf("manifest %q has empty change segment", path)
+	}
+	if manifest.Volume.SizeBytes < 0 {
+		return nil, fmt.Errorf("manifest %q has invalid volume size %d", path, manifest.Volume.SizeBytes)
+	}
+	if manifest.Volume.ChunkSizeBytes <= 0 {
+		return nil, fmt.Errorf("manifest %q has invalid chunk size %d", path, manifest.Volume.ChunkSizeBytes)
 	}
 	return &manifest, nil
 }
@@ -293,7 +335,28 @@ func loadCASChanges(path string) ([]casChangeRecord, error) {
 	if err := json.Unmarshal(data, &changes); err != nil {
 		return nil, fmt.Errorf("decode change segment %q: %w", path, err)
 	}
+	for _, change := range changes {
+		if err := validateCASChangeRecord(change); err != nil {
+			return nil, fmt.Errorf("invalid change segment %q record: %w", path, err)
+		}
+	}
 	return changes, nil
+}
+
+func validateCASChangeRecord(change casChangeRecord) error {
+	switch change.State {
+	case "allocated":
+		if change.ChunkID == "" {
+			return fmt.Errorf("allocated chunk %d has empty chunkID", change.ChunkIndex)
+		}
+	case "freed":
+		if change.ChunkID != "" {
+			return fmt.Errorf("freed chunk %d must not carry chunkID", change.ChunkIndex)
+		}
+	default:
+		return fmt.Errorf("unknown change state %q", change.State)
+	}
+	return nil
 }
 
 func loadCASActiveIndex(path string) (*casActiveIndex, error) {
@@ -304,6 +367,9 @@ func loadCASActiveIndex(path string) (*casActiveIndex, error) {
 	var active casActiveIndex
 	if err := json.Unmarshal(data, &active); err != nil {
 		return nil, fmt.Errorf("decode active index: %w", err)
+	}
+	if active.Version != casIndexVersionV1 {
+		return nil, fmt.Errorf("unsupported active index version %d", active.Version)
 	}
 	return &active, nil
 }
@@ -326,6 +392,9 @@ func loadCASChunkLocations(repoPath string, active *casActiveIndex) (map[string]
 			return nil, fmt.Errorf("decode index segment %q: %w", segment, err)
 		}
 		for _, entry := range entries {
+			if err := validateCASIndexEntry(entry); err != nil {
+				return nil, fmt.Errorf("invalid index segment %q entry for chunk %q: %w", segment, entry.ChunkID, err)
+			}
 			locations[entry.ChunkID] = entry
 		}
 	}
@@ -333,11 +402,8 @@ func loadCASChunkLocations(repoPath string, active *casActiveIndex) (map[string]
 }
 
 func readCASChunkPayload(repoPath string, entry casIndexEntry) ([]byte, error) {
-	if entry.Codec != "" && entry.Codec != "none" {
-		return nil, fmt.Errorf("unsupported chunk codec %q", entry.Codec)
-	}
-	if entry.StoredLength < 0 || entry.PackOffset < 0 {
-		return nil, fmt.Errorf("invalid chunk location packOffset=%d storedLength=%d", entry.PackOffset, entry.StoredLength)
+	if err := validateCASIndexEntry(entry); err != nil {
+		return nil, err
 	}
 
 	packPath := filepath.Join(repoPath, "packs", fmt.Sprintf("pack-%06d.pack", entry.PackID))
@@ -361,6 +427,28 @@ func readCASChunkPayload(repoPath string, entry casIndexEntry) ([]byte, error) {
 		}
 	}
 	return buf, nil
+}
+
+func validateCASIndexEntry(entry casIndexEntry) error {
+	if entry.ChunkID == "" {
+		return fmt.Errorf("chunkID is required")
+	}
+	if entry.PackID <= 0 {
+		return fmt.Errorf("packID must be > 0")
+	}
+	if entry.PackOffset < 0 {
+		return fmt.Errorf("packOffset must be >= 0")
+	}
+	if entry.StoredLength <= 0 {
+		return fmt.Errorf("storedLength must be > 0")
+	}
+	if entry.RawLength <= 0 {
+		return fmt.Errorf("rawLength must be > 0")
+	}
+	if entry.Codec != "" && entry.Codec != "none" {
+		return fmt.Errorf("unsupported chunk codec %q", entry.Codec)
+	}
+	return nil
 }
 
 func minInt64(a, b int64) int64 {
