@@ -18,7 +18,6 @@ jobs:
     name: E2E Real Cluster
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    if: ${{ vars.SNAPLANE_REAL_CLUSTER_E2E_ENABLED == 'true' }}
     environment: release-e2e
     env:
       SNAPLANE_E2E_IMAGE: controller:latest
