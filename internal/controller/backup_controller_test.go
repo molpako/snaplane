@@ -416,6 +416,7 @@ var _ = Describe("Backup Controller", func() {
 					TargetPath:      "/var/backup/default/pvc-a/repo/manifest-cas",
 					RepositoryPath:  "/var/backup/default/pvc-a/repo",
 					ManifestId:      "manifest-cas",
+					ManifestChain:   []string{"base-cas", "manifest-cas"},
 					RepoUuid:        "repo-cas-1",
 					VolumeSizeBytes: 8388608,
 					ChunkSizeBytes:  4194304,
@@ -435,6 +436,7 @@ var _ = Describe("Backup Controller", func() {
 		Expect(refreshed.Status.RestoreSource.Format).To(Equal(snaplanev1alpha1.RestoreSourceFormatCASV1))
 		Expect(refreshed.Status.RestoreSource.RepositoryPath).To(Equal("/var/backup/default/pvc-a/repo"))
 		Expect(refreshed.Status.RestoreSource.ManifestID).To(Equal("manifest-cas"))
+		Expect(refreshed.Status.RestoreSource.ManifestChain).To(Equal([]string{"base-cas", "manifest-cas"}))
 		Expect(refreshed.Status.RestoreSource.ChunkSizeBytes).To(Equal(int64(4194304)))
 	})
 

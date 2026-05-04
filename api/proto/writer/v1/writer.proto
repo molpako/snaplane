@@ -66,6 +66,7 @@ message CommitWriteResponse {
   int64 volume_size_bytes = 5;
   int64 chunk_size_bytes = 6;
   string restore_format = 7;
+  repeated string manifest_chain = 8;
 }
 
 message AbortWriteRequest {

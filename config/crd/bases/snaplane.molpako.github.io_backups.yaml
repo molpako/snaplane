@@ -199,6 +199,10 @@ spec:
                     type: integer
                   format:
                     type: string
+                  manifestChain:
+                    items:
+                      type: string
+                    type: array
                   manifestID:
                     type: string
                   nodeName:

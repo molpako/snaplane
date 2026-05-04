@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -71,6 +72,13 @@ type queueHealthStatus struct {
 	healthy bool
 	reason  string
 	message string
+}
+
+type casBackupRetentionSource struct {
+	name           string
+	repositoryPath string
+	manifestID     string
+	manifestChain  []string
 }
 
 // BackupPolicyReconciler reconciles a BackupPolicy object.
@@ -584,6 +592,14 @@ func (r *BackupPolicyReconciler) applyRetention(ctx context.Context, policy *sna
 	if err != nil {
 		return err
 	}
+	backups, err := r.listPolicyBackups(ctx, policy)
+	if err != nil {
+		return err
+	}
+	casAncestorBackups := protectCASAncestorBackups(backups, candidates, protectedBackups)
+	for backupName := range casAncestorBackups {
+		protectedBackups[backupName] = struct{}{}
+	}
 
 	sort.SliceStable(candidates, func(i, j int) bool {
 		qi := queueTimeOf(&candidates[i])
@@ -621,6 +637,86 @@ func (r *BackupPolicyReconciler) applyRetention(ctx context.Context, policy *sna
 	}
 
 	return nil
+}
+
+func protectCASAncestorBackups(
+	backups []snaplanev1alpha1.Backup,
+	candidates []volumesnapshotv1.VolumeSnapshot,
+	protectedBackups map[string]struct{},
+) map[string]struct{} {
+	candidateBackups := make(map[string]struct{}, len(candidates))
+	for i := range candidates {
+		if candidates[i].Annotations == nil {
+			continue
+		}
+		backupName := candidates[i].Annotations[snaplanev1alpha1.BackupNameAnnotationKey]
+		if backupName != "" {
+			candidateBackups[backupName] = struct{}{}
+		}
+	}
+
+	backupByManifest := make(map[string]string)
+	casBackups := make([]casBackupRetentionSource, 0)
+	for i := range backups {
+		backup := &backups[i]
+		cas, ok := backupCASRestoreSource(backup)
+		if !ok {
+			continue
+		}
+		casBackups = append(casBackups, cas)
+		backupByManifest[casManifestKey(cas.repositoryPath, cas.manifestID)] = cas.name
+	}
+
+	out := make(map[string]struct{})
+	for i := range casBackups {
+		root := casBackups[i]
+		if _, candidate := candidateBackups[root.name]; candidate {
+			if _, protected := protectedBackups[root.name]; !protected {
+				continue
+			}
+		}
+
+		if len(root.manifestChain) == 0 {
+			for j := range casBackups {
+				candidate := casBackups[j]
+				if candidate.repositoryPath == root.repositoryPath {
+					out[candidate.name] = struct{}{}
+				}
+			}
+			continue
+		}
+
+		for _, manifestID := range root.manifestChain {
+			ancestorBackupName := backupByManifest[casManifestKey(root.repositoryPath, manifestID)]
+			if ancestorBackupName == "" {
+				continue
+			}
+			out[ancestorBackupName] = struct{}{}
+		}
+	}
+	return out
+}
+
+func backupCASRestoreSource(backup *snaplanev1alpha1.Backup) (casBackupRetentionSource, bool) {
+	if !backupIsSucceeded(backup) {
+		return casBackupRetentionSource{}, false
+	}
+	restoreSource := backup.Status.RestoreSource
+	if restoreSource.Format != snaplanev1alpha1.RestoreSourceFormatCASV1 ||
+		restoreSource.RepositoryPath == "" ||
+		restoreSource.ManifestID == "" {
+		return casBackupRetentionSource{}, false
+	}
+	return casBackupRetentionSource{
+		name:           backup.Name,
+		repositoryPath: filepath.Clean(restoreSource.RepositoryPath),
+		manifestID:     restoreSource.ManifestID,
+		manifestChain:  append([]string(nil), restoreSource.ManifestChain...),
+	}, true
+}
+
+func casManifestKey(repositoryPath, manifestID string) string {
+	return filepath.Clean(repositoryPath) + "\x00" + manifestID
 }
 
 func (r *BackupPolicyReconciler) activeRestoreBackupReferences(ctx context.Context, namespace string) (map[string]struct{}, error) {

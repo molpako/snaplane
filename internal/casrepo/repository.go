@@ -48,6 +48,7 @@ type CommitRequest struct {
 type CommitResult struct {
 	RepositoryPath string
 	ManifestID     string
+	ManifestChain  []string
 	RepoUUID       string
 	VolumeSize     int64
 	ChunkSize      int64
@@ -316,6 +317,11 @@ func Commit(req CommitRequest) (*CommitResult, error) {
 		return nil, err
 	}
 
+	manifestChain, err := ResolveManifestChain(repoPath, req.ManifestID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve manifest chain: %w", err)
+	}
+
 	if err := atomicWriteFile(filepath.Join(repoPath, "refs", "latest.txt"), []byte(req.ManifestID+"\n"), 0o640); err != nil {
 		return nil, fmt.Errorf("write latest ref: %w", err)
 	}
@@ -323,6 +329,7 @@ func Commit(req CommitRequest) (*CommitResult, error) {
 	return &CommitResult{
 		RepositoryPath: repoPath,
 		ManifestID:     req.ManifestID,
+		ManifestChain:  manifestChain,
 		RepoUUID:       meta.RepoUUID,
 		VolumeSize:     req.LogicalSize,
 		ChunkSize:      meta.ChunkSizeBytes,

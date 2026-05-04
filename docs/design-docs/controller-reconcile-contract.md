@@ -80,3 +80,4 @@ Dispatch stops when any of these are true:
 - restore starts from PVC `dataSourceRef -> Backup`
 - only `Succeeded=True` backups are accepted
 - restore requires `status.restoreSource.repositoryPath` and `manifestID`
+- CAS retention protection uses `status.restoreSource.manifestChain` instead of reading node-local repository files from the manager
