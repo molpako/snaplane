@@ -554,6 +554,7 @@ func populateBackupRestoreSource(
 	format := commitResp.GetRestoreFormat()
 	volumeSizeBytes := commitResp.GetVolumeSizeBytes()
 	chunkSizeBytes := commitResp.GetChunkSizeBytes()
+	manifestChain := commitResp.GetManifestChain()
 
 	if repositoryPath == "" || repositoryPath == "." {
 		return fmt.Errorf("repository path is empty")
@@ -591,6 +592,7 @@ func populateBackupRestoreSource(
 		NodeName:        backup.Spec.Destination.NodeName,
 		RepositoryPath:  repositoryPath,
 		ManifestID:      manifestID,
+		ManifestChain:   append([]string(nil), manifestChain...),
 		RepoUUID:        repoUUID,
 		Format:          format,
 		VolumeSizeBytes: volumeSizeBytes,

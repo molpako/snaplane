@@ -46,7 +46,7 @@ Snaplane is a Kubernetes operator for block-volume backup and restore with:
 - blocks later work when the head snapshot is `Failed`
 - resolves and pins the destination node on the source PVC
 - creates one `Backup` object per dispatched snapshot
-- applies retention by deleting old `Done` snapshots and their `Backup` objects, except when a restore still references them
+- applies retention by deleting old `Done` snapshots and their `Backup` objects, except when a restore still references them or a retained CAS backup still needs them as manifest-chain ancestors
 
 ### `Backup` controller
 
@@ -55,6 +55,7 @@ Snaplane is a Kubernetes operator for block-volume backup and restore with:
 - retries retryable failures with exponential backoff and jitter
 - marks `Succeeded=True` only after restore metadata is durable
 - publishes `status.restoreSource` for restore consumers
+- publishes CAS manifest-chain ancestry in `status.restoreSource`
 
 ### Restore populator
 

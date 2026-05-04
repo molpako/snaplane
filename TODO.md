@@ -10,7 +10,7 @@
 
 ## Repository Semantics
 
-- Make retention dependency-safe so a kept manifest never loses a reachable parent.
+- Make physical CAS repository pruning dependency-safe so a kept manifest never loses a reachable parent.
 - Define exactly when `freed` chunk state is emitted during backup generation.
 - Define fencing between backup publish and GC mark/sweep so live chunks cannot be deleted.
 - Document forward and backward compatibility rules for repository and segment versions.

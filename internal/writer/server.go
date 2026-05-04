@@ -392,6 +392,7 @@ func (s *Server) commitCAS(session *writeSession) (*writerv1.CommitWriteResponse
 		TargetPath:      targetPath,
 		RepositoryPath:  result.RepositoryPath,
 		ManifestId:      result.ManifestID,
+		ManifestChain:   result.ManifestChain,
 		RepoUuid:        result.RepoUUID,
 		VolumeSizeBytes: result.VolumeSize,
 		ChunkSizeBytes:  result.ChunkSize,

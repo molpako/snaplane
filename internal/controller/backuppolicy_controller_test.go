@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -21,6 +23,7 @@ import (
 
 	volumesnapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	snaplanev1alpha1 "github.com/molpako/snaplane/api/v1alpha1"
+	"github.com/molpako/snaplane/internal/casrepo"
 	"github.com/molpako/snaplane/internal/writer"
 )
 
@@ -216,6 +219,75 @@ func resourceMustParse(value string) resource.Quantity {
 	q, err := resource.ParseQuantity(value)
 	Expect(err).NotTo(HaveOccurred())
 	return q
+}
+
+func writeCASSpool(payload []byte) string {
+	path := filepath.Join(GinkgoT().TempDir(), "spool.img")
+	f, err := os.Create(path)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = f.Write(payload)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = f.Write(make([]byte, 4096))
+	Expect(err).NotTo(HaveOccurred())
+	Expect(f.Close()).To(Succeed())
+	return path
+}
+
+func createDoneSnapshotForBackup(ctx context.Context, snapshotName, policyName, backupName string, queueTime time.Time) {
+	upsertSnapshotWithState(ctx, snapshotName, policyName, queueTime, snaplanev1alpha1.SnapshotQueueStateDone, true)
+
+	var snapshot volumesnapshotv1.VolumeSnapshot
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: snapshotName, Namespace: "default"}, &snapshot)).To(Succeed())
+	base := snapshot.DeepCopy()
+	if snapshot.Annotations == nil {
+		snapshot.Annotations = map[string]string{}
+	}
+	snapshot.Annotations[snaplanev1alpha1.BackupNameAnnotationKey] = backupName
+	Expect(k8sClient.Patch(ctx, &snapshot, client.MergeFrom(base))).To(Succeed())
+}
+
+func createSucceededCASBackup(
+	ctx context.Context,
+	policyName, snapshotName, backupName, repoPath, repoUUID, manifestID string,
+	manifestChain []string,
+) {
+	backup := &snaplanev1alpha1.Backup{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      backupName,
+		},
+		Spec: snaplanev1alpha1.BackupSpec{
+			PolicyRef: snaplanev1alpha1.LocalNameReference{Name: policyName},
+			VolumeSnapshotRef: snaplanev1alpha1.VolumeSnapshotReference{
+				Name: snapshotName,
+			},
+			Destination: snaplanev1alpha1.BackupDestination{NodeName: "node-a"},
+		},
+	}
+	Expect(k8sClient.Create(ctx, backup)).To(Succeed())
+
+	var current snaplanev1alpha1.Backup
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: backupName, Namespace: "default"}, &current)).To(Succeed())
+	now := metav1.Now()
+	current.Status.CompletionTime = &now
+	current.Status.RestoreSource = snaplanev1alpha1.BackupRestoreSourceStatus{
+		NodeName:        "node-a",
+		RepositoryPath:  repoPath,
+		ManifestID:      manifestID,
+		ManifestChain:   append([]string(nil), manifestChain...),
+		RepoUUID:        repoUUID,
+		Format:          snaplanev1alpha1.RestoreSourceFormatCASV1,
+		VolumeSizeBytes: 4099,
+		ChunkSizeBytes:  casrepo.DefaultChunkSize,
+	}
+	meta.SetStatusCondition(&current.Status.Conditions, metav1.Condition{
+		Type:               snaplanev1alpha1.BackupConditionSucceeded,
+		Status:             metav1.ConditionTrue,
+		Reason:             "Completed",
+		ObservedGeneration: current.Generation,
+		LastTransitionTime: metav1.Now(),
+	})
+	Expect(k8sClient.Status().Update(ctx, &current)).To(Succeed())
 }
 
 var _ = Describe("BackupPolicy Controller", func() {
@@ -818,5 +890,81 @@ var _ = Describe("BackupPolicy Controller", func() {
 
 		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: snapshotName, Namespace: "default"}, &volumesnapshotv1.VolumeSnapshot{}))).To(BeTrue())
 		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: backupName, Namespace: "default"}, &snaplanev1alpha1.Backup{}))).To(BeTrue())
+	})
+
+	It("retention keeps old CAS ancestor backup required by newer retained CAS backup", func() {
+		policy := newPolicy(policyName)
+		policy.Spec.Schedule.Suspend = boolPtr(true)
+		Expect(k8sClient.Create(ctx, policy)).To(Succeed())
+
+		repoPath := filepath.Join(GinkgoT().TempDir(), "repo")
+		repoUUID := ""
+		for _, tc := range []struct {
+			manifestID string
+			payload    []byte
+		}{
+			{manifestID: "manifest-m1", payload: []byte("abc")},
+			{manifestID: "manifest-m2", payload: []byte("def")},
+		} {
+			result, err := casrepo.Commit(casrepo.CommitRequest{
+				RepositoryPath: repoPath,
+				ManifestID:     tc.manifestID,
+				PolicyName:     policyName,
+				SpoolPath:      writeCASSpool(tc.payload),
+				LogicalSize:    4099,
+				Spans: []casrepo.FrameSpan{
+					{Kind: casrepo.SpanKindData, Offset: 0, Length: int64(len(tc.payload))},
+					{Kind: casrepo.SpanKindZero, Offset: int64(len(tc.payload)), Length: 4096},
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			if repoUUID == "" {
+				repoUUID = result.RepoUUID
+			}
+		}
+		Expect(repoUUID).NotTo(BeEmpty())
+
+		now := time.Now().UTC()
+		generations := []struct {
+			snapshotName  string
+			backupName    string
+			manifestID    string
+			manifestChain []string
+			queueTime     time.Time
+		}{
+			{
+				snapshotName:  "snapshot-cas-m1-" + policyName,
+				backupName:    "backup-cas-m1-" + policyName,
+				manifestID:    "manifest-m1",
+				manifestChain: []string{"manifest-m1"},
+				queueTime:     now.Add(-48 * time.Hour),
+			},
+			{
+				snapshotName:  "snapshot-cas-m2-" + policyName,
+				backupName:    "backup-cas-m2-" + policyName,
+				manifestID:    "manifest-m2",
+				manifestChain: []string{"manifest-m1", "manifest-m2"},
+				queueTime:     now.Add(-12 * time.Hour),
+			},
+		}
+		for _, generation := range generations {
+			createDoneSnapshotForBackup(ctx, generation.snapshotName, policyName, generation.backupName, generation.queueTime)
+			createSucceededCASBackup(
+				ctx,
+				policyName,
+				generation.snapshotName,
+				generation.backupName,
+				repoPath,
+				repoUUID,
+				generation.manifestID,
+				generation.manifestChain,
+			)
+		}
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: policyNN})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: generations[0].backupName, Namespace: "default"}, &snaplanev1alpha1.Backup{})).To(Succeed())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: generations[1].backupName, Namespace: "default"}, &snaplanev1alpha1.Backup{})).To(Succeed())
 	})
 })
