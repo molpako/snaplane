@@ -2,13 +2,6 @@ name: E2E Real Cluster
 
 on:
   workflow_dispatch:
-    inputs:
-      storage_class:
-        description: StorageClass used by the real-cluster gate.
-        required: true
-      volume_snapshot_class:
-        description: VolumeSnapshotClass used by the real-cluster gate.
-        required: true
 
 permissions:
   contents: read
@@ -17,10 +10,11 @@ jobs:
   e2e-real-cluster:
     name: E2E Real Cluster
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    environment: release-e2e
+    timeout-minutes: 90
     env:
       SNAPLANE_E2E_IMAGE: controller:latest
+      E2E_STORAGE_CLASS: csi-hostpath-sc
+      E2E_VOLUME_SNAPSHOT_CLASS: csi-hostpath-snapclass
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,24 +25,38 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Configure Kubeconfig
-        env:
-          KUBECONFIG_B64: ${{ secrets.SNAPLANE_REAL_CLUSTER_KUBECONFIG_B64 }}
+      - name: Install Kubernetes Tools
         run: |
-          test -n "$KUBECONFIG_B64"
-          mkdir -p "$HOME/.kube"
-          echo "$KUBECONFIG_B64" | base64 -d > "$HOME/.kube/config"
-          chmod 0600 "$HOME/.kube/config"
+          sudo apt-get update
+          sudo apt-get install -y conntrack qemu-system-x86 qemu-utils
+
+          curl -fsSLo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+          sudo install minikube /usr/local/bin/minikube
+
+          kubectl_version="$(curl -fsSL https://dl.k8s.io/release/stable.txt)"
+          curl -fsSLo kubectl "https://dl.k8s.io/release/${kubectl_version}/bin/linux/amd64/kubectl"
+          sudo install kubectl /usr/local/bin/kubectl
+
+      - name: Start Minikube Real Cluster
+        run: |
+          minikube start \
+            --profile=snaplane-real \
+            --driver=qemu \
+            --container-runtime=containerd \
+            --cpus=4 \
+            --memory=8192 \
+            --disk-size=40g
+          minikube addons enable volumesnapshots --profile=snaplane-real
+          minikube addons enable csi-hostpath-driver --profile=snaplane-real
+          kubectl wait --for=condition=Ready node --all --timeout=5m
+          kubectl wait --for=condition=ready pod --all -n kube-system --timeout=5m
 
       - name: Build Snaplane Image
-        run: make docker-build IMG="$SNAPLANE_E2E_IMAGE"
+        run: minikube image build --profile=snaplane-real -t "$SNAPLANE_E2E_IMAGE" .
 
       - name: Run Real Cluster E2E
         id: real_cluster
         continue-on-error: true
-        env:
-          E2E_STORAGE_CLASS: ${{ inputs.storage_class }}
-          E2E_VOLUME_SNAPSHOT_CLASS: ${{ inputs.volume_snapshot_class }}
         run: make test-e2e-real-cluster IMG="$SNAPLANE_E2E_IMAGE"
 
       - name: Collect Real Cluster Diagnostics
