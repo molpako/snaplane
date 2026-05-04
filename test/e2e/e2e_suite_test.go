@@ -74,7 +74,7 @@ const (
 	hostPathRepoRootEnv     = "SNAPLANE_HOSTPATH_REPO_ROOT"
 	hostPathRepoURLEnv      = "SNAPLANE_HOSTPATH_REPO_URL"
 	hostPathRepoRevisionEnv = "SNAPLANE_HOSTPATH_REPO_REVISION"
-	hostPathRepoCacheDir    = "test/e2e/.hostpath-driver"
+	hostPathRepoCacheDir    = ".cache/snaplane/hostpath-driver"
 	managerLeaderLeaseName  = "b7cc5d87.molpako.github.io"
 )
 

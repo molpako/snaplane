@@ -33,3 +33,4 @@ Snaplane e2e tests use `kubernetes-sigs/e2e-framework` and currently run in two 
 - the Make targets use `-count=1` to avoid stale `go test` cache results
 - e2e coverage should prefer real integrations over mocks
 - the current nightly lane is not the final production-like CBT gate; that role is reserved for the planned CSI backend lane
+- the nightly lane caches `csi-driver-host-path` under `.cache/snaplane/hostpath-driver` unless `SNAPLANE_HOSTPATH_REPO_ROOT` points to an external checkout
