@@ -35,6 +35,8 @@ const (
 	defaultRootDir          = "/var/backup"
 	defaultHeartbeat        = 30 * time.Second
 	defaultLeaseDurationSec = int32(120)
+	maxLeaseAnnotationValue = 4096
+	truncatedAnnotationMark = "...<truncated>"
 )
 
 func main() {
@@ -243,7 +245,14 @@ func annotateCASMaintenance(annotations map[string]string, snapshot writer.CASMa
 		delete(annotations, snaplanev1alpha1.LeaseCASMaintenanceLastErrorKey)
 		return
 	}
-	annotations[snaplanev1alpha1.LeaseCASMaintenanceLastErrorKey] = snapshot.LastError
+	annotations[snaplanev1alpha1.LeaseCASMaintenanceLastErrorKey] = boundAnnotationValue(snapshot.LastError)
+}
+
+func boundAnnotationValue(value string) string {
+	if len(value) <= maxLeaseAnnotationValue {
+		return value
+	}
+	return value[:maxLeaseAnnotationValue-len(truncatedAnnotationMark)] + truncatedAnnotationMark
 }
 
 func fsUsage(root string) (used int64, available int64, err error) {
