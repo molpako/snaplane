@@ -13,8 +13,6 @@ gate:
 - add required reviewers for release approval
 - store the real-cluster kubeconfig as the environment secret
   `SNAPLANE_REAL_CLUSTER_KUBECONFIG_B64`
-- keep `SNAPLANE_REAL_CLUSTER_E2E_ENABLED=true` as a repository or environment
-  variable
 
 The `E2E Real Cluster` workflow uses this environment, so the kubeconfig is not
 available until a reviewer approves the job.
