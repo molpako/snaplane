@@ -1,0 +1,80 @@
+name: E2E Ceph Nightly
+
+on:
+  schedule:
+    - cron: "0 19 * * *"
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Pullable Snaplane image to deploy.
+        required: true
+        default: ghcr.io/molpako/snaplane:v0.0.1
+      storage_class:
+        description: Ceph RBD StorageClass used by the gate.
+        required: true
+        default: csi-rbd-sc
+      volume_snapshot_class:
+        description: Ceph RBD VolumeSnapshotClass used by the gate.
+        required: true
+        default: csi-rbdplugin-snapclass
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-ceph-nightly:
+    name: E2E Ceph Nightly
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    if: ${{ vars.SNAPLANE_CEPH_NIGHTLY_ENABLED == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Configure Kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.SNAPLANE_CEPH_NIGHTLY_KUBECONFIG_B64 }}
+        run: |
+          test -n "$KUBECONFIG_B64"
+          mkdir -p "$HOME/.kube"
+          echo "$KUBECONFIG_B64" | base64 -d > "$HOME/.kube/config"
+          chmod 0600 "$HOME/.kube/config"
+
+      - name: Run Ceph Nightly E2E
+        id: ceph_nightly
+        continue-on-error: true
+        env:
+          E2E_STORAGE_CLASS: ${{ inputs.storage_class }}
+          E2E_VOLUME_SNAPSHOT_CLASS: ${{ inputs.volume_snapshot_class }}
+        run: make test-e2e-ceph-nightly IMG='${{ inputs.image }}'
+
+      - name: Collect Ceph Nightly Diagnostics
+        if: steps.ceph_nightly.outcome == 'failure'
+        run: |
+          mkdir -p artifacts/e2e-ceph-nightly
+          kubectl get pods -A -o wide > artifacts/e2e-ceph-nightly/pods.txt || true
+          kubectl get events -A --sort-by=.lastTimestamp > artifacts/e2e-ceph-nightly/events.txt || true
+          kubectl get storageclass > artifacts/e2e-ceph-nightly/storageclasses.txt || true
+          kubectl get volumesnapshotclass > artifacts/e2e-ceph-nightly/volumesnapshotclasses.txt || true
+          kubectl get snapshotmetadataservices.cbt.storage.k8s.io -A -o yaml > artifacts/e2e-ceph-nightly/snapshotmetadataservices.yaml || true
+          kubectl get lease -A -o yaml > artifacts/e2e-ceph-nightly/leases.yaml || true
+          kubectl describe deployment -n snaplane-system snaplane-controller-manager > artifacts/e2e-ceph-nightly/manager-describe.txt || true
+          kubectl describe daemonset -n snaplane-system writer-sidecar > artifacts/e2e-ceph-nightly/writer-sidecar-describe.txt || true
+          kubectl get secret,certificate,certificaterequest,issuer -n snaplane-system > artifacts/e2e-ceph-nightly/cert-manager.txt || true
+
+      - name: Upload Ceph Nightly Diagnostics
+        if: steps.ceph_nightly.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-ceph-nightly-diagnostics
+          path: artifacts/e2e-ceph-nightly
+
+      - name: Fail Job On Ceph Nightly Error
+        if: steps.ceph_nightly.outcome == 'failure'
+        run: exit 1

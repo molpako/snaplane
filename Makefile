@@ -112,6 +112,14 @@ test-e2e-fast: manifests generate fmt vet ensure-kind-cli ## Run e2e tests in fa
 test-e2e-nightly: manifests generate fmt vet ensure-kind-cli recreate-kind-cluster ## Run e2e tests in nightly lane (fresh Kind cluster managed by the Make target, cert-manager).
 	KIND_CLUSTER=$(KIND_CLUSTER) E2E_TLS_MODE=cert-manager go test -count=1 -timeout=30m -tags=e2e ./test/e2e/ -v
 
+.PHONY: test-e2e-real-cluster
+test-e2e-real-cluster: manifests generate fmt vet ## Run real-cluster e2e gate against the current kubeconfig and a pullable IMG.
+	E2E_REAL_CLUSTER=true E2E_TLS_MODE=cert-manager IMG=$(IMG) go test -count=1 -timeout=45m -tags=e2e ./test/e2e/ -run 'TestBackupRetryScenarios|TestRealClusterRestoreWorkflow' -v
+
+.PHONY: test-e2e-ceph-nightly
+test-e2e-ceph-nightly: manifests generate fmt vet ## Run Ceph-backed nightly CBT gate against current kubeconfig and preinstalled Ceph CSI/SnapshotMetadataService.
+	E2E_REAL_CLUSTER=true E2E_TLS_MODE=cert-manager E2E_USE_REAL_CBT_PROVIDER=true IMG=$(IMG) go test -count=1 -timeout=60m -tags=e2e ./test/e2e/ -run TestBackupRetryScenarios -v
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run

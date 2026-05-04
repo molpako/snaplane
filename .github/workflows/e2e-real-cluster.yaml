@@ -1,0 +1,64 @@
+name: E2E Real Cluster
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Pullable Snaplane image to deploy.
+        required: true
+        default: ghcr.io/molpako/snaplane:v0.0.1
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-real-cluster:
+    name: E2E Real Cluster
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: ${{ vars.SNAPLANE_REAL_CLUSTER_E2E_ENABLED == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Configure Kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.SNAPLANE_REAL_CLUSTER_KUBECONFIG_B64 }}
+        run: |
+          test -n "$KUBECONFIG_B64"
+          mkdir -p "$HOME/.kube"
+          echo "$KUBECONFIG_B64" | base64 -d > "$HOME/.kube/config"
+          chmod 0600 "$HOME/.kube/config"
+
+      - name: Run Real Cluster E2E
+        id: real_cluster
+        continue-on-error: true
+        run: make test-e2e-real-cluster IMG='${{ inputs.image }}'
+
+      - name: Collect Real Cluster Diagnostics
+        if: steps.real_cluster.outcome == 'failure'
+        run: |
+          mkdir -p artifacts/e2e-real-cluster
+          kubectl get pods -A -o wide > artifacts/e2e-real-cluster/pods.txt || true
+          kubectl get events -A --sort-by=.lastTimestamp > artifacts/e2e-real-cluster/events.txt || true
+          kubectl get lease -A -o yaml > artifacts/e2e-real-cluster/leases.yaml || true
+          kubectl describe deployment -n snaplane-system snaplane-controller-manager > artifacts/e2e-real-cluster/manager-describe.txt || true
+          kubectl describe daemonset -n snaplane-system writer-sidecar > artifacts/e2e-real-cluster/writer-sidecar-describe.txt || true
+          kubectl get secret,certificate,certificaterequest,issuer -n snaplane-system > artifacts/e2e-real-cluster/cert-manager.txt || true
+
+      - name: Upload Real Cluster Diagnostics
+        if: steps.real_cluster.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-real-cluster-diagnostics
+          path: artifacts/e2e-real-cluster
+
+      - name: Fail Job On Real Cluster Error
+        if: steps.real_cluster.outcome == 'failure'
+        run: exit 1

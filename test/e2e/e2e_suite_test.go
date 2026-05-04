@@ -61,7 +61,6 @@ import (
 const (
 	namespace               = "snaplane-system"
 	managerDeploymentName   = "snaplane-controller-manager"
-	projectImage            = "ghcr.io/molpako/snaplane:v0.0.1"
 	snapshotterVersion      = "v8.2.0"
 	snapshotMetadataVersion = "v0.1.0"
 
@@ -76,6 +75,10 @@ const (
 	hostPathRepoRevisionEnv = "SNAPLANE_HOSTPATH_REPO_REVISION"
 	hostPathRepoCacheDir    = "test/e2e/.hostpath-driver"
 	managerLeaderLeaseName  = "b7cc5d87.molpako.github.io"
+	realClusterEnv          = "E2E_REAL_CLUSTER"
+	realCBTProviderEnv      = "E2E_USE_REAL_CBT_PROVIDER"
+	storageClassEnv         = "E2E_STORAGE_CLASS"
+	volumeSnapshotClassEnv  = "E2E_VOLUME_SNAPSHOT_CLASS"
 )
 
 var (
@@ -88,6 +91,7 @@ var (
 	hostPathInstalled           bool
 	hostPathGitBefore           string
 	hostPathRepoPath            string
+	projectImage                = envOrDefault("IMG", "ghcr.io/molpako/snaplane:v0.0.1")
 )
 
 var snapshotCRDURLs = []string{
@@ -168,18 +172,20 @@ func setupEnvironment(ctx context.Context, cfg *envconf.Config) (context.Context
 
 	log.Printf("e2e TLS mode: %s", activeTLSMode)
 
-	if _, err := utils.Run(exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", projectImage))); err != nil {
-		return ctx, fmt.Errorf("build manager image: %w", err)
-	}
-
-	if isHermeticFastLane() {
-		ctx, err := envfuncs.LoadImageToCluster(activeKindClusterName, projectImage)(ctx, cfg)
-		if err != nil {
-			return ctx, fmt.Errorf("load image to hermetic kind cluster: %w", err)
+	if !isRealClusterLane() {
+		if _, err := utils.Run(exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", projectImage))); err != nil {
+			return ctx, fmt.Errorf("build manager image: %w", err)
 		}
-	} else {
-		if err := utils.LoadImageToKindClusterWithName(projectImage); err != nil {
-			return ctx, fmt.Errorf("load image to kind: %w", err)
+
+		if isHermeticFastLane() {
+			ctx, err := envfuncs.LoadImageToCluster(activeKindClusterName, projectImage)(ctx, cfg)
+			if err != nil {
+				return ctx, fmt.Errorf("load image to hermetic kind cluster: %w", err)
+			}
+		} else {
+			if err := utils.LoadImageToKindClusterWithName(projectImage); err != nil {
+				return ctx, fmt.Errorf("load image to kind: %w", err)
+			}
 		}
 	}
 
@@ -197,8 +203,10 @@ func setupEnvironment(ctx context.Context, cfg *envconf.Config) (context.Context
 
 	switch activeTLSMode {
 	case tlsModeCertManager:
-		if err := setupNightlyHostPathSMS(ctx); err != nil {
-			return ctx, err
+		if !isRealClusterLane() {
+			if err := setupNightlyHostPathSMS(ctx); err != nil {
+				return ctx, err
+			}
 		}
 		if !utils.IsCertManagerCRDsInstalled() {
 			if err := utils.InstallCertManager(); err != nil {
@@ -237,7 +245,7 @@ func setupEnvironment(ctx context.Context, cfg *envconf.Config) (context.Context
 	); err != nil {
 		return ctx, fmt.Errorf("wait controller-manager availability: %w", err)
 	}
-	if activeTLSMode == tlsModeCertManager {
+	if activeTLSMode == tlsModeCertManager && (!isRealClusterLane() || useRealCBTProvider()) {
 		if err := setRealCBTProviderOnManager(ctx); err != nil {
 			return ctx, err
 		}
@@ -282,8 +290,10 @@ func cleanupEnvironment(ctx context.Context, _ *envconf.Config) (context.Context
 }
 
 func preflightE2EEnvironment() error {
-	if _, err := utils.Run(exec.Command("docker", "info", "--format", "{{.ServerVersion}}")); err != nil {
-		return fmt.Errorf("preflight docker check failed: %w", err)
+	if !isRealClusterLane() {
+		if _, err := utils.Run(exec.Command("docker", "info", "--format", "{{.ServerVersion}}")); err != nil {
+			return fmt.Errorf("preflight docker check failed: %w", err)
+		}
 	}
 	if activeTLSMode == tlsModeCertManager {
 		if _, err := utils.Run(exec.Command("kubectl", "version", "--request-timeout=10s")); err != nil {
@@ -292,6 +302,21 @@ func preflightE2EEnvironment() error {
 		kubeAPIReachable = true
 	}
 	return nil
+}
+
+func isRealClusterLane() bool {
+	return os.Getenv(realClusterEnv) == "true"
+}
+
+func useRealCBTProvider() bool {
+	return os.Getenv(realCBTProviderEnv) == "true"
+}
+
+func envOrDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func isHermeticFastLane() bool {
