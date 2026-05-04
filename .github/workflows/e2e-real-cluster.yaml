@@ -34,25 +34,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install Minikube QEMU Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y conntrack ovmf qemu-system-x86 qemu-utils
-
       - name: Start Minikube Real Cluster
         uses: medyagh/setup-minikube@latest
         with:
           minikube-version: 1.38.0
           kubernetes-version: stable
-          driver: qemu
-          container-runtime: containerd
+          driver: none
+          container-runtime: docker
           cpus: 4
           memory: 8192m
           wait: all
           addons: volumesnapshots,csi-hostpath-driver
-          start-args: >-
-            --profile=snaplane-real
-            --disk-size=40g
 
       - name: Wait For Minikube Addons
         run: |
@@ -60,7 +52,7 @@ jobs:
           kubectl wait --for=condition=ready pod --all -n kube-system --timeout=5m
 
       - name: Build Snaplane Image
-        run: minikube image build --profile=snaplane-real -t "$SNAPLANE_E2E_IMAGE" .
+        run: make docker-build IMG="$SNAPLANE_E2E_IMAGE"
 
       - name: Run Real Cluster E2E
         id: real_cluster

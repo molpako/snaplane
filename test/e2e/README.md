@@ -38,10 +38,10 @@ Snaplane e2e tests use `kubernetes-sigs/e2e-framework` and currently run in two 
 ## Real Cluster Gate
 
 - command: `make test-e2e-real-cluster IMG=<locally-built-image>`
-- cluster: workflow-created minikube qemu cluster
+- cluster: workflow-created minikube `none` driver cluster
 - TLS: `E2E_TLS_MODE=cert-manager`
 - cert-manager: required
-- image: the workflow builds `IMG=controller:latest` inside minikube from the checked-out source before running the gate
+- image: the workflow builds `IMG=controller:latest` on the runner Docker daemon from the checked-out source before running the gate
 - configuration:
   - `E2E_STORAGE_CLASS=csi-hostpath-sc`
   - `E2E_VOLUME_SNAPSHOT_CLASS=csi-hostpath-snapclass`

@@ -8,8 +8,8 @@ Snaplane release.
 ## GitHub Setup
 
 No external cluster credentials are required for the `E2E Real Cluster`
-workflow. The workflow creates a minikube qemu cluster and enables the required
-CSI hostpath and VolumeSnapshot addons before running the gate.
+workflow. The workflow creates a minikube `none` driver cluster and enables the
+required CSI hostpath and VolumeSnapshot addons before running the gate.
 
 ## Preflight
 
