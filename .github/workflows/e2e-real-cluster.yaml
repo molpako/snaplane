@@ -7,6 +7,12 @@ on:
         description: Pullable Snaplane image to deploy.
         required: true
         default: ghcr.io/molpako/snaplane:v0.0.1
+      storage_class:
+        description: StorageClass used by the real-cluster gate.
+        required: true
+      volume_snapshot_class:
+        description: VolumeSnapshotClass used by the real-cluster gate.
+        required: true
 
 permissions:
   contents: read
@@ -40,6 +46,9 @@ jobs:
       - name: Run Real Cluster E2E
         id: real_cluster
         continue-on-error: true
+        env:
+          E2E_STORAGE_CLASS: ${{ inputs.storage_class }}
+          E2E_VOLUME_SNAPSHOT_CLASS: ${{ inputs.volume_snapshot_class }}
         run: make test-e2e-real-cluster IMG='${{ inputs.image }}'
 
       - name: Collect Real Cluster Diagnostics
@@ -48,6 +57,8 @@ jobs:
           mkdir -p artifacts/e2e-real-cluster
           kubectl get pods -A -o wide > artifacts/e2e-real-cluster/pods.txt || true
           kubectl get events -A --sort-by=.lastTimestamp > artifacts/e2e-real-cluster/events.txt || true
+          kubectl get storageclass > artifacts/e2e-real-cluster/storageclasses.txt || true
+          kubectl get volumesnapshotclass > artifacts/e2e-real-cluster/volumesnapshotclasses.txt || true
           kubectl get lease -A -o yaml > artifacts/e2e-real-cluster/leases.yaml || true
           kubectl describe deployment -n snaplane-system snaplane-controller-manager > artifacts/e2e-real-cluster/manager-describe.txt || true
           kubectl describe daemonset -n snaplane-system writer-sidecar > artifacts/e2e-real-cluster/writer-sidecar-describe.txt || true

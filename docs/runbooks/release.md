@@ -40,8 +40,10 @@ of a mutable tag such as `latest`.
 1. Open the `E2E Real Cluster` workflow.
 2. Run the workflow manually.
 3. Set `image` to the release-candidate image reference.
-4. Wait for `release-e2e` environment approval.
-5. Confirm the workflow completes successfully.
+4. Set `storage_class` and `volume_snapshot_class` to classes that exist in the
+   release test cluster.
+5. Wait for `release-e2e` environment approval.
+6. Confirm the workflow completes successfully.
 
 This gate validates the real-cluster writer, cert-manager TLS, backup retry, and
 restore worker paths using the selected image.

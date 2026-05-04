@@ -30,6 +30,7 @@ Snaplane e2e tests use `kubernetes-sigs/e2e-framework` and currently run in two 
 - configuration:
   - `E2E_STORAGE_CLASS` selects the Ceph RBD `StorageClass`
   - `E2E_VOLUME_SNAPSHOT_CLASS` selects the Ceph RBD `VolumeSnapshotClass`
+  - scheduled CI defaults to `csi-rbd-sc` and `csi-rbdplugin-snapclass`
   - `E2E_USE_REAL_CBT_PROVIDER=true`
 - purpose: validate the production-intended CBT semantics and live incremental backup path
 - CI entrypoint: `.github/workflows/e2e-ceph-nightly.yaml`
@@ -41,6 +42,9 @@ Snaplane e2e tests use `kubernetes-sigs/e2e-framework` and currently run in two 
 - TLS: `E2E_TLS_MODE=cert-manager`
 - cert-manager: required
 - image: `IMG` must already be pullable by the cluster
+- configuration:
+  - `E2E_STORAGE_CLASS` selects the test `StorageClass`
+  - `E2E_VOLUME_SNAPSHOT_CLASS` selects the test `VolumeSnapshotClass`
 - coverage:
   - writer Lease heartbeats through the writer-sidecar pod
   - controller-to-writer mTLS by completing a backup after endpoint recovery

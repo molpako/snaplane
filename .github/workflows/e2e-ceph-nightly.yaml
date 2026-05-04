@@ -27,6 +27,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     if: ${{ vars.SNAPLANE_CEPH_NIGHTLY_ENABLED == 'true' }}
+    env:
+      SNAPLANE_E2E_IMAGE: ${{ inputs.image || 'ghcr.io/molpako/snaplane:v0.0.1' }}
+      E2E_STORAGE_CLASS: ${{ inputs.storage_class || 'csi-rbd-sc' }}
+      E2E_VOLUME_SNAPSHOT_CLASS: ${{ inputs.volume_snapshot_class || 'csi-rbdplugin-snapclass' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,10 +53,7 @@ jobs:
       - name: Run Ceph Nightly E2E
         id: ceph_nightly
         continue-on-error: true
-        env:
-          E2E_STORAGE_CLASS: ${{ inputs.storage_class }}
-          E2E_VOLUME_SNAPSHOT_CLASS: ${{ inputs.volume_snapshot_class }}
-        run: make test-e2e-ceph-nightly IMG='${{ inputs.image }}'
+        run: make test-e2e-ceph-nightly IMG="$SNAPLANE_E2E_IMAGE"
 
       - name: Collect Ceph Nightly Diagnostics
         if: steps.ceph_nightly.outcome == 'failure'
