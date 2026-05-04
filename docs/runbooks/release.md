@@ -7,15 +7,9 @@ Snaplane release.
 
 ## GitHub Setup
 
-Configure a GitHub Environment named `release-e2e` before using the release
-gate:
-
-- add required reviewers for release approval
-- store the real-cluster kubeconfig as the environment secret
-  `SNAPLANE_REAL_CLUSTER_KUBECONFIG_B64`
-
-The `E2E Real Cluster` workflow uses this environment, so the kubeconfig is not
-available until a reviewer approves the job.
+No external cluster credentials are required for the `E2E Real Cluster`
+workflow. The workflow creates a minikube qemu cluster and enables the required
+CSI hostpath and VolumeSnapshot addons before running the gate.
 
 ## Preflight
 
@@ -27,10 +21,7 @@ available until a reviewer approves the job.
 
 1. Open the `E2E Real Cluster` workflow.
 2. Run the workflow manually.
-3. Set `storage_class` and `volume_snapshot_class` to classes that exist in the
-   release test cluster.
-4. Wait for `release-e2e` environment approval.
-5. Confirm the workflow completes successfully.
+3. Confirm the workflow completes successfully.
 
 This gate validates the real-cluster writer, cert-manager TLS, backup retry, and
 restore worker paths using an image built from the workflow checkout.
