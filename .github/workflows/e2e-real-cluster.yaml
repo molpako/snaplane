@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     if: ${{ vars.SNAPLANE_REAL_CLUSTER_E2E_ENABLED == 'true' }}
+    environment: release-e2e
     steps:
       - name: Checkout
         uses: actions/checkout@v4

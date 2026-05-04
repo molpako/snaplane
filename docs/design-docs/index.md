@@ -24,6 +24,7 @@ When an item is not implemented yet, track it in `TODO.md` instead of adding ano
 
 ## Runbooks
 
+- `../runbooks/release.md`
 - `../runbooks/writer-sidecar-cert-rotation.md`
 
 ## Maintenance Rules

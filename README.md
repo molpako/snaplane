@@ -63,3 +63,4 @@ Track open work in [TODO.md](./TODO.md).
 - retained design docs: [docs/design-docs/index.md](./docs/design-docs/index.md)
 - open work: [TODO.md](./TODO.md)
 - e2e lanes: [test/e2e/README.md](./test/e2e/README.md)
+- release runbook: [docs/runbooks/release.md](./docs/runbooks/release.md)
