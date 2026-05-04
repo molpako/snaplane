@@ -75,6 +75,7 @@ spec:
         - name: WRITER_CLIENT_CA_FILE
           value: /certs/ca/tls.crt
         image: controller:latest
+        imagePullPolicy: IfNotPresent
         name: manager
         ports: []
         securityContext:
