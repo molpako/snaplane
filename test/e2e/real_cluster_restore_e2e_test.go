@@ -46,7 +46,6 @@ func TestRealClusterRestoreWorkflow(t *testing.T) {
 					t.Fatalf("build kube client: %v", err)
 				}
 				state.lowNode = firstReadyNodeName(ctx, t, kubeClient)
-				state.nodes = []string{state.lowNode}
 				seedMockBackupOnNode(ctx, t, kubeClient, state.namespace, state.lowNode, payload)
 				return ctx
 			}).
