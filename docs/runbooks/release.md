@@ -23,30 +23,19 @@ available until a reviewer approves the job.
 
 1. Confirm the release branch is based on the intended commit.
 2. Confirm normal CI is green.
-3. Build and publish a pullable release-candidate image.
-4. Record the immutable image reference.
-
-Use an image digest when possible:
-
-```text
-ghcr.io/molpako/snaplane@sha256:...
-```
-
-If a digest is not available yet, use an explicit release-candidate tag instead
-of a mutable tag such as `latest`.
+3. Confirm the `E2E Real Cluster` workflow will run from the intended commit.
 
 ## Real-Cluster Gate
 
 1. Open the `E2E Real Cluster` workflow.
 2. Run the workflow manually.
-3. Set `image` to the release-candidate image reference.
-4. Set `storage_class` and `volume_snapshot_class` to classes that exist in the
+3. Set `storage_class` and `volume_snapshot_class` to classes that exist in the
    release test cluster.
-5. Wait for `release-e2e` environment approval.
-6. Confirm the workflow completes successfully.
+4. Wait for `release-e2e` environment approval.
+5. Confirm the workflow completes successfully.
 
 This gate validates the real-cluster writer, cert-manager TLS, backup retry, and
-restore worker paths using the selected image.
+restore worker paths using an image built from the workflow checkout.
 
 ## Ceph Gate
 
@@ -65,7 +54,6 @@ already installed. Use the workflow diagnostics artifact when it fails.
 Record the following in the release notes or release checklist:
 
 - release commit SHA
-- release-candidate image digest or tag
 - `E2E Real Cluster` workflow run URL
 - `E2E Ceph Nightly` workflow run URL or accepted latest nightly run
 - any known external-cluster caveats
