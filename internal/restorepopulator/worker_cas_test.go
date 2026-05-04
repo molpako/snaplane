@@ -104,6 +104,7 @@ func TestRunWorkerCASErrorsOnMissingManifest(t *testing.T) {
 	t.Parallel()
 
 	repoPath := filepath.Join(t.TempDir(), "repo")
+	commitCASGeneration(t, repoPath, "m1", []byte("seed"))
 	targetPath := filepath.Join(t.TempDir(), "target.img")
 	prepareTargetFile(t, targetPath, 16, 0)
 
@@ -117,6 +118,44 @@ func TestRunWorkerCASErrorsOnMissingManifest(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "manifest") {
 		t.Fatalf("expected missing manifest error, got %v", err)
+	}
+}
+
+func TestRunWorkerCASRejectsUnsupportedRepoVersion(t *testing.T) {
+	t.Parallel()
+
+	repoPath := filepath.Join(t.TempDir(), "repo")
+	payload := []byte("hello-phase2")
+	commitCASGeneration(t, repoPath, "m1", payload)
+
+	repoMetaPath := filepath.Join(repoPath, "repo.json")
+	data := readFile(t, repoMetaPath)
+	var decoded map[string]any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("decode repo metadata: %v", err)
+	}
+	decoded["repoVersion"] = float64(2)
+	encoded, err := json.MarshalIndent(decoded, "", "  ")
+	if err != nil {
+		t.Fatalf("encode repo metadata: %v", err)
+	}
+	if err := os.WriteFile(repoMetaPath, append(encoded, '\n'), 0o600); err != nil {
+		t.Fatalf("write repo metadata: %v", err)
+	}
+
+	targetPath := filepath.Join(t.TempDir(), "target.img")
+	prepareTargetFile(t, targetPath, len(payload), 0x7f)
+
+	err = RunWorker(WorkerOptions{
+		SourceDir:       repoPath,
+		ManifestID:      "m1",
+		TargetDevice:    targetPath,
+		Format:          snaplanev1alpha1.RestoreSourceFormatCASV1,
+		VolumeSizeBytes: int64(len(payload)),
+		ChunkSizeBytes:  casrepo.DefaultChunkSize,
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported repository version") {
+		t.Fatalf("expected unsupported repository version error, got %v", err)
 	}
 }
 

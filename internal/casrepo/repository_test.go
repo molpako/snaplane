@@ -123,6 +123,51 @@ func TestCommitDedupsIdenticalChunk(t *testing.T) {
 	}
 }
 
+func TestCommitRejectsUnsupportedRepositoryVersion(t *testing.T) {
+	t.Parallel()
+
+	repoPath := filepath.Join(t.TempDir(), "repo")
+	spoolPath := writeSpoolFile(t, []byte("abc"), 0)
+	if _, err := Commit(CommitRequest{
+		RepositoryPath: repoPath,
+		ManifestID:     "m1",
+		SpoolPath:      spoolPath,
+		LogicalSize:    3,
+		Spans:          []FrameSpan{{Kind: SpanKindData, Offset: 0, Length: 3}},
+	}); err != nil {
+		t.Fatalf("commit m1: %v", err)
+	}
+
+	metaPath := filepath.Join(repoPath, "repo.json")
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("read repo metadata: %v", err)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(data, &meta); err != nil {
+		t.Fatalf("decode repo metadata: %v", err)
+	}
+	meta["repoVersion"] = float64(2)
+	encoded, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		t.Fatalf("encode repo metadata: %v", err)
+	}
+	if err := os.WriteFile(metaPath, append(encoded, '\n'), 0o640); err != nil {
+		t.Fatalf("write repo metadata: %v", err)
+	}
+
+	_, err = Commit(CommitRequest{
+		RepositoryPath: repoPath,
+		ManifestID:     "m2",
+		SpoolPath:      spoolPath,
+		LogicalSize:    3,
+		Spans:          []FrameSpan{{Kind: SpanKindData, Offset: 0, Length: 3}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported repository version") {
+		t.Fatalf("expected unsupported repository version error, got %v", err)
+	}
+}
+
 func TestCommitWritesManifestDeltaForChangedChunk(t *testing.T) {
 	t.Parallel()
 
@@ -608,6 +653,124 @@ func TestCompactPreservesRestoreForRemainingManifests(t *testing.T) {
 
 	restoreAndCompare(t, repoPath, "m1", []byte("abc"))
 	restoreAndCompare(t, repoPath, "m2", []byte("xyz"))
+}
+
+func TestPruneKeepsManifestParentClosureAndCompacts(t *testing.T) {
+	t.Parallel()
+
+	repoPath := filepath.Join(t.TempDir(), "repo")
+	spoolA := writeSpoolFile(t, []byte("aaa"), 4096)
+	spoolB := writeSpoolFile(t, []byte("bbb"), 4096)
+	spoolC := writeSpoolFile(t, []byte("ccc"), 4096)
+	for _, tc := range []struct {
+		manifestID string
+		spoolPath  string
+	}{
+		{manifestID: "m1", spoolPath: spoolA},
+		{manifestID: "m2", spoolPath: spoolB},
+		{manifestID: "m3", spoolPath: spoolC},
+	} {
+		if _, err := Commit(CommitRequest{
+			RepositoryPath: repoPath,
+			ManifestID:     tc.manifestID,
+			SpoolPath:      tc.spoolPath,
+			LogicalSize:    4099,
+			Spans:          []FrameSpan{{Kind: SpanKindData, Offset: 0, Length: 3}, {Kind: SpanKindZero, Offset: 3, Length: 4096}},
+		}); err != nil {
+			t.Fatalf("commit %s: %v", tc.manifestID, err)
+		}
+	}
+
+	result, err := Prune(PruneRequest{
+		RepositoryPath:  repoPath,
+		KeepManifestIDs: []string{"m2"},
+	})
+	if err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if !slices.Equal(result.KeptManifestIDs, []string{"m1", "m2"}) {
+		t.Fatalf("unexpected kept manifests: %v", result.KeptManifestIDs)
+	}
+	if !slices.Equal(result.DeletedManifestIDs, []string{"m3"}) {
+		t.Fatalf("unexpected deleted manifests: %v", result.DeletedManifestIDs)
+	}
+	if result.Compaction == nil || result.Compaction.ManifestCount != 2 {
+		t.Fatalf("expected compaction over 2 kept manifests, got %#v", result.Compaction)
+	}
+	if _, err := os.Stat(filepath.Join(repoPath, "snapshots", "m1", "manifest.json")); err != nil {
+		t.Fatalf("expected parent manifest m1 to remain: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repoPath, "snapshots", "m3", "manifest.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected m3 to be deleted, got %v", err)
+	}
+	latest, err := os.ReadFile(filepath.Join(repoPath, "refs", "latest.txt"))
+	if err != nil {
+		t.Fatalf("read latest ref: %v", err)
+	}
+	if string(latest) != "m2\n" {
+		t.Fatalf("expected latest ref to be m2, got %q", string(latest))
+	}
+
+	restoreAndCompare(t, repoPath, "m2", []byte("bbb"))
+}
+
+func TestPruneCanDeleteAllManifestDirs(t *testing.T) {
+	t.Parallel()
+
+	repoPath := filepath.Join(t.TempDir(), "repo")
+	spoolPath := writeSpoolFile(t, []byte("abc"), 4096)
+	if _, err := Commit(CommitRequest{
+		RepositoryPath: repoPath,
+		ManifestID:     "m1",
+		SpoolPath:      spoolPath,
+		LogicalSize:    4099,
+		Spans:          []FrameSpan{{Kind: SpanKindData, Offset: 0, Length: 3}, {Kind: SpanKindZero, Offset: 3, Length: 4096}},
+	}); err != nil {
+		t.Fatalf("commit m1: %v", err)
+	}
+
+	result, err := Prune(PruneRequest{RepositoryPath: repoPath})
+	if err != nil {
+		t.Fatalf("prune all: %v", err)
+	}
+	if len(result.KeptManifestIDs) != 0 {
+		t.Fatalf("expected no kept manifests, got %v", result.KeptManifestIDs)
+	}
+	if !slices.Equal(result.DeletedManifestIDs, []string{"m1"}) {
+		t.Fatalf("unexpected deleted manifests: %v", result.DeletedManifestIDs)
+	}
+	if _, err := os.Stat(filepath.Join(repoPath, "refs", "latest.txt")); !os.IsNotExist(err) {
+		t.Fatalf("expected latest ref to be removed, got %v", err)
+	}
+	if result.Compaction == nil || result.Compaction.ReachableChunkCount != 0 {
+		t.Fatalf("expected empty compaction result, got %#v", result.Compaction)
+	}
+}
+
+func TestCompactRejectsCorruptedReachablePayload(t *testing.T) {
+	t.Parallel()
+
+	repoPath := filepath.Join(t.TempDir(), "repo")
+	spoolPath := writeSpoolFile(t, []byte("abc"), 4096)
+	if _, err := Commit(CommitRequest{
+		RepositoryPath: repoPath,
+		ManifestID:     "m1",
+		SpoolPath:      spoolPath,
+		LogicalSize:    4099,
+		Spans:          []FrameSpan{{Kind: SpanKindData, Offset: 0, Length: 3}, {Kind: SpanKindZero, Offset: 3, Length: 4096}},
+	}); err != nil {
+		t.Fatalf("commit m1: %v", err)
+	}
+
+	packPath := filepath.Join(repoPath, "packs", "pack-000001.pack")
+	if err := os.WriteFile(packPath, append([]byte("zzz"), make([]byte, 4096)...), 0o640); err != nil {
+		t.Fatalf("corrupt pack: %v", err)
+	}
+
+	_, err := Compact(repoPath)
+	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("expected checksum mismatch error, got %v", err)
+	}
 }
 
 func restoreAndCompare(t *testing.T, repoPath, manifestID string, wantPrefix []byte) {
