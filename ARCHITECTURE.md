@@ -97,6 +97,9 @@ Rules:
 - default writer mode is `mock`
 - optional `SNAPLANE_BACKUP_WRITE_MODE=cas` writes a PVC-scoped CAS repository under `/var/backup/<namespace>/<pvc>/repo`
 - writer-sidecar CAS maintenance scans PVC-scoped repositories and runs compaction every `6h` by default
+- writer Lease annotations expose the latest CAS maintenance run, error, repository count, and reclaimed bytes
+- CAS manifest pruning expands keep roots to their parent-chain closure before deleting manifest directories and compacting chunks
+- CAS v1 readers fail closed on unsupported repository/index versions, unsupported codecs, invalid change records, and chunk checksum mismatches
 - restore supports:
   - `mock-image-v1`
   - `cas-v1`
@@ -104,9 +107,6 @@ Rules:
 ## Explicitly Out Of Scope
 
 - automatic destination failover
-- dependency-safe repository pruning and GC fencing
-- a production-ready SnapshotMetadata-backed CBT data path
-- a CBT-capable CSI backend nightly gate; the current nightly lane remains a hostpath-based integration lane
 - benchmark and performance tuning work
 
-Those items stay in `TODO.md`.
+Open implementation work stays in `TODO.md`.

@@ -35,6 +35,8 @@ const (
 	defaultRootDir          = "/var/backup"
 	defaultHeartbeat        = 30 * time.Second
 	defaultLeaseDurationSec = int32(120)
+	maxLeaseAnnotationValue = 4096
+	truncatedAnnotationMark = "...<truncated>"
 )
 
 func main() {
@@ -192,15 +194,17 @@ func upsertNodeLease(
 	leases := kubeClient.CoordinationV1().Leases(leaseNamespace)
 	lease, err := leases.Get(ctx, leaseName, metav1.GetOptions{})
 	if err != nil {
+		annotations := map[string]string{
+			snaplanev1alpha1.WriterEndpointAnnotationKey:      endpoint,
+			snaplanev1alpha1.LeaseUsedBytesAnnotationKey:      strconv.FormatInt(used, 10),
+			snaplanev1alpha1.LeaseAvailableBytesAnnotationKey: strconv.FormatInt(available, 10),
+		}
+		annotateCASMaintenance(annotations, writer.CurrentCASMaintenanceSnapshot())
 		newLease := &coordinationv1.Lease{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      leaseName,
-				Namespace: leaseNamespace,
-				Annotations: map[string]string{
-					snaplanev1alpha1.WriterEndpointAnnotationKey:      endpoint,
-					snaplanev1alpha1.LeaseUsedBytesAnnotationKey:      strconv.FormatInt(used, 10),
-					snaplanev1alpha1.LeaseAvailableBytesAnnotationKey: strconv.FormatInt(available, 10),
-				},
+				Name:        leaseName,
+				Namespace:   leaseNamespace,
+				Annotations: annotations,
 			},
 			Spec: coordinationv1.LeaseSpec{
 				HolderIdentity:       ptr(nodeName),
@@ -220,6 +224,7 @@ func upsertNodeLease(
 	lease.Annotations[snaplanev1alpha1.WriterEndpointAnnotationKey] = endpoint
 	lease.Annotations[snaplanev1alpha1.LeaseUsedBytesAnnotationKey] = strconv.FormatInt(used, 10)
 	lease.Annotations[snaplanev1alpha1.LeaseAvailableBytesAnnotationKey] = strconv.FormatInt(available, 10)
+	annotateCASMaintenance(lease.Annotations, writer.CurrentCASMaintenanceSnapshot())
 	lease.Spec.HolderIdentity = ptr(nodeName)
 	lease.Spec.RenewTime = &now
 	lease.Spec.LeaseDurationSeconds = ptr(defaultLeaseDurationSec)
@@ -227,6 +232,27 @@ func upsertNodeLease(
 		return fmt.Errorf("update lease: %w", err)
 	}
 	return nil
+}
+
+func annotateCASMaintenance(annotations map[string]string, snapshot writer.CASMaintenanceSnapshot) {
+	if snapshot.LastRunAt.IsZero() {
+		return
+	}
+	annotations[snaplanev1alpha1.LeaseCASMaintenanceLastRunKey] = snapshot.LastRunAt.UTC().Format(time.RFC3339)
+	annotations[snaplanev1alpha1.LeaseCASMaintenanceRepoCountKey] = strconv.Itoa(snapshot.RepositoryRuns)
+	annotations[snaplanev1alpha1.LeaseCASMaintenanceReclaimedKey] = strconv.FormatInt(snapshot.ReclaimedBytes, 10)
+	if snapshot.LastError == "" {
+		delete(annotations, snaplanev1alpha1.LeaseCASMaintenanceLastErrorKey)
+		return
+	}
+	annotations[snaplanev1alpha1.LeaseCASMaintenanceLastErrorKey] = boundAnnotationValue(snapshot.LastError)
+}
+
+func boundAnnotationValue(value string) string {
+	if len(value) <= maxLeaseAnnotationValue {
+		return value
+	}
+	return value[:maxLeaseAnnotationValue-len(truncatedAnnotationMark)] + truncatedAnnotationMark
 }
 
 func fsUsage(root string) (used int64, available int64, err error) {

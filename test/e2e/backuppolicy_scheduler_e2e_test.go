@@ -274,7 +274,7 @@ func ensurePVC(ctx context.Context, t *testing.T, c ctrlclient.Client, ns, pvcNa
 		},
 	}
 	if activeTLSMode == tlsModeCertManager {
-		sc := "csi-hostpath-sc"
+		sc := e2eStorageClassName()
 		pvc.Spec.StorageClassName = &sc
 		vm := corev1.PersistentVolumeBlock
 		pvc.Spec.VolumeMode = &vm
@@ -496,10 +496,23 @@ func waitForPVCBound(ctx context.Context, t *testing.T, c ctrlclient.Client, ns,
 }
 
 func e2eVolumeSnapshotClassName() string {
+	if value := envOrDefault(volumeSnapshotClassEnv, ""); value != "" {
+		return value
+	}
 	if activeTLSMode == tlsModeCertManager {
 		return "csi-hostpath-snapclass"
 	}
 	return "csi-rbd-snapclass"
+}
+
+func e2eStorageClassName() string {
+	if value := envOrDefault(storageClassEnv, ""); value != "" {
+		return value
+	}
+	if activeTLSMode == tlsModeCertManager {
+		return "csi-hostpath-sc"
+	}
+	return "csi-rbd-sc"
 }
 
 func markSnapshotReady(ctx context.Context, t *testing.T, c ctrlclient.Client, ns, snapshotName string) {

@@ -35,3 +35,6 @@ go.work.sum
 # Kubebuilder artifacts
 /bin/
 /testbin/
+
+# e2e dependency cache cloned by the hostpath nightly lane
+/test/e2e/.hostpath-driver/

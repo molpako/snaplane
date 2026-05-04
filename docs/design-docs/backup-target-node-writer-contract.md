@@ -30,6 +30,10 @@ This document describes the implemented contract for choosing a node-local backu
 - `snaplane.molpako.github.io/writer-endpoint=<podIP:port>`
 - `snaplane.molpako.github.io/used-bytes=<int64>`
 - `snaplane.molpako.github.io/available-bytes=<int64>`
+- `snaplane.molpako.github.io/cas-maintenance-last-run=<RFC3339>`
+- `snaplane.molpako.github.io/cas-maintenance-last-error=<string>`
+- `snaplane.molpako.github.io/cas-maintenance-repos=<int>`
+- `snaplane.molpako.github.io/cas-maintenance-reclaimed-bytes=<int64>`
 
 ## Candidate Selection
 
@@ -85,6 +89,8 @@ Selection behavior:
 - writes to `/var/backup/<namespace>/<pvc>/repo`
 - publishes repository metadata used later by restore
 - writer-sidecar maintenance discovers repositories at that layout and runs CAS compaction on a fixed interval
+- the interval is controlled by `-cas-maintenance-interval`; `0` disables maintenance
+- the latest maintenance result is exported through the writer Lease annotations
 
 ## Operational Defaults
 

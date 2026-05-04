@@ -54,6 +54,10 @@ Snaplane does not define a `Restore` CRD or a `BackupContent` CRD in v1alpha1.
 - retry state
 - restore source metadata
 
+`Succeeded` is the only operator-facing `Backup` condition in v1alpha1.
+Detailed phase state stays in `progress`, `retry`, `lastError`, and
+`restoreSource` fields instead of being duplicated into additional conditions.
+
 ## Queue Contract
 
 Queue state is stored on `VolumeSnapshot` metadata, not on a dedicated queue CRD.
@@ -69,3 +73,6 @@ Rules:
 - dispatch is strict serial
 - a failed queue head blocks later snapshots
 - restore retention protection is based on active PVC restore references
+- restore retention protection intentionally covers PVCs whose `dataSourceRef`
+  still points at a `Backup` and does not attempt to infer completed restores
+  from PVs, Pods, or application-level use
