@@ -48,6 +48,8 @@ Dispatch stops when any of these are true:
 - `spec.manual.requestID` is treated as pending until it is acknowledged in status
 - a manual snapshot is only created when the policy has no non-`Done` snapshots
 - manual retry of a failed head snapshot is done by creating a `Backup` for that snapshot
+- v1 keeps retry of a failed queue head user-driven; there is no separate
+  controller retry API beyond creating the replacement `Backup`
 
 ### Retention behavior
 
@@ -55,6 +57,9 @@ Dispatch stops when any of these are true:
 - deletion is ordered by `queueTime`
 - the paired `Backup` is deleted with the snapshot
 - deletion is skipped when an active restore PVC still references that `Backup`
+- active restore means a PVC in the same namespace still has
+  `spec.dataSourceRef -> Backup` and has not completed populator protection;
+  completed restores are not treated as retention pins
 
 ## `Backup` Controller
 
@@ -72,6 +77,8 @@ Dispatch stops when any of these are true:
 - non-terminal work is represented as `Succeeded=Unknown`
 - terminal success is `Succeeded=True`
 - terminal failure is `Succeeded=False`
+- `Succeeded` is the only `Backup` condition in v1; retry/progress/restore
+  details are status fields, not additional condition types
 - timeout and endpoint errors may retry until the policy backoff limit is exhausted
 - queue metadata is never updated from this controller
 

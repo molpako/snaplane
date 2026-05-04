@@ -49,11 +49,11 @@ Implemented:
 - restore populator flow
 - CAS repository publish and restore
 - CAS compaction execution in writer-sidecar maintenance
+- dependency-safe CAS manifest pruning
+- SnapshotMetadata-backed range collection and live snapshot-reader data path
 
-Not yet implemented:
-- production-ready SnapshotMetadata-backed CBT data path
-- dependency-safe CAS repository pruning and GC fencing
-- full operational rollout documentation
+Open work:
+- no repo-local TODOs are currently tracked; external environment work is captured by the e2e gate documentation
 
 Track open work in [TODO.md](./TODO.md).
 
