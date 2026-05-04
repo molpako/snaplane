@@ -80,13 +80,14 @@ type BackupRetryStatus struct {
 }
 
 type BackupRestoreSourceStatus struct {
-	NodeName        string `json:"nodeName,omitempty"`
-	RepositoryPath  string `json:"repositoryPath,omitempty"`
-	ManifestID      string `json:"manifestID,omitempty"`
-	RepoUUID        string `json:"repoUUID,omitempty"`
-	Format          string `json:"format,omitempty"`
-	VolumeSizeBytes int64  `json:"volumeSizeBytes,omitempty"`
-	ChunkSizeBytes  int64  `json:"chunkSizeBytes,omitempty"`
+	NodeName        string   `json:"nodeName,omitempty"`
+	RepositoryPath  string   `json:"repositoryPath,omitempty"`
+	ManifestID      string   `json:"manifestID,omitempty"`
+	ManifestChain   []string `json:"manifestChain,omitempty"`
+	RepoUUID        string   `json:"repoUUID,omitempty"`
+	Format          string   `json:"format,omitempty"`
+	VolumeSizeBytes int64    `json:"volumeSizeBytes,omitempty"`
+	ChunkSizeBytes  int64    `json:"chunkSizeBytes,omitempty"`
 }
 
 // BackupStatus defines the observed state of Backup.

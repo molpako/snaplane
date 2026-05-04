@@ -34,10 +34,11 @@ Implemented:
 - retryable backup execution
 - restore populator flow
 - CAS repository publish and restore
+- CAS compaction execution in writer-sidecar maintenance
 
 Not yet implemented:
 - production-ready SnapshotMetadata-backed CBT data path
-- CAS GC and compaction execution
+- dependency-safe CAS repository pruning and GC fencing
 - full operational rollout documentation
 
 Track open work in [TODO.md](./TODO.md).

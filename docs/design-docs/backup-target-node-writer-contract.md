@@ -84,6 +84,7 @@ Selection behavior:
 
 - writes to `/var/backup/<namespace>/<pvc>/repo`
 - publishes repository metadata used later by restore
+- writer-sidecar maintenance discovers repositories at that layout and runs CAS compaction on a fixed interval
 
 ## Operational Defaults
 

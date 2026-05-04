@@ -190,6 +190,9 @@ func TestWriterServerCASCommitCreatesRepositoryAndMetadata(t *testing.T) {
 	if commitResp.GetRepositoryPath() == "" || commitResp.GetManifestId() == "" || commitResp.GetRepoUuid() == "" {
 		t.Fatalf("expected structured CAS metadata, got %+v", commitResp)
 	}
+	if got, want := strings.Join(commitResp.GetManifestChain(), ","), commitResp.GetManifestId(); got != want {
+		t.Fatalf("unexpected manifest chain: got %q want %q", got, want)
+	}
 	if _, err := os.Stat(filepath.Join(commitResp.GetRepositoryPath(), "repo.json")); err != nil {
 		t.Fatalf("expected repo.json: %v", err)
 	}
@@ -220,6 +223,10 @@ func TestWriterServerCASCommitDedupsSecondGeneration(t *testing.T) {
 	}
 	if commitB.GetManifestId() == "" {
 		t.Fatalf("expected manifest id in second commit")
+	}
+	wantChain := commitA.GetManifestId() + "," + commitB.GetManifestId()
+	if got := strings.Join(commitB.GetManifestChain(), ","); got != wantChain {
+		t.Fatalf("unexpected second manifest chain: got %q want %q", got, wantChain)
 	}
 
 	activeRaw, err := os.ReadFile(filepath.Join(commitA.GetRepositoryPath(), "indexes", "active.json"))

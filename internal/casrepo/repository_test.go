@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -169,6 +170,152 @@ func TestCommitWritesManifestDeltaForChangedChunk(t *testing.T) {
 	}
 }
 
+func TestResolveManifestChainReturnsRootToRequestedInclusive(t *testing.T) {
+	t.Parallel()
+
+	repoPath := filepath.Join(t.TempDir(), "repo")
+	spoolA := writeSpoolFile(t, []byte("aaa"), 4096)
+	spoolB := writeSpoolFile(t, []byte("bbb"), 4096)
+	spoolC := writeSpoolFile(t, []byte("ccc"), 4096)
+
+	for _, tc := range []struct {
+		manifestID string
+		spoolPath  string
+	}{
+		{manifestID: "m1", spoolPath: spoolA},
+		{manifestID: "m2", spoolPath: spoolB},
+		{manifestID: "m3", spoolPath: spoolC},
+	} {
+		if _, err := Commit(CommitRequest{
+			RepositoryPath: repoPath,
+			ManifestID:     tc.manifestID,
+			SpoolPath:      tc.spoolPath,
+			LogicalSize:    4099,
+			Spans: []FrameSpan{
+				{Kind: SpanKindData, Offset: 0, Length: 3},
+				{Kind: SpanKindZero, Offset: 3, Length: 4096},
+			},
+		}); err != nil {
+			t.Fatalf("commit %s: %v", tc.manifestID, err)
+		}
+	}
+
+	chain, err := ResolveManifestChain(repoPath, "m3", ManifestChainOptions{})
+	if err != nil {
+		t.Fatalf("resolve chain: %v", err)
+	}
+	want := []string{"m1", "m2", "m3"}
+	if !slices.Equal(chain, want) {
+		t.Fatalf("unexpected chain: got %v want %v", chain, want)
+	}
+}
+
+func TestResolveManifestChainValidatesRepositoryPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := ResolveManifestChain("relative-repo", "m1", ManifestChainOptions{})
+	if err == nil || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("expected absolute repository path error, got %v", err)
+	}
+}
+
+func TestResolveManifestChainRejectsUnsafeManifestID(t *testing.T) {
+	t.Parallel()
+
+	repoPath := filepath.Join(t.TempDir(), "repo")
+	for _, manifestID := range []string{"../escape", "m1/../m2", filepath.Join(string(filepath.Separator), "tmp", "m1")} {
+		_, err := ResolveManifestChain(repoPath, manifestID, ManifestChainOptions{})
+		if err == nil {
+			t.Fatalf("expected unsafe manifest ID %q to fail", manifestID)
+		}
+	}
+}
+
+func TestResolveManifestChainRejectsUnsafeParentManifestID(t *testing.T) {
+	t.Parallel()
+
+	repoPath := filepath.Join(t.TempDir(), "repo")
+	spoolPath := writeSpoolFile(t, []byte("abc"), 4096)
+	if _, err := Commit(CommitRequest{
+		RepositoryPath: repoPath,
+		ManifestID:     "m1",
+		SpoolPath:      spoolPath,
+		LogicalSize:    4099,
+		Spans:          []FrameSpan{{Kind: SpanKindData, Offset: 0, Length: 3}},
+	}); err != nil {
+		t.Fatalf("commit m1: %v", err)
+	}
+	setManifestParentForTest(t, repoPath, "m1", "../escape")
+
+	_, err := ResolveManifestChain(repoPath, "m1", ManifestChainOptions{})
+	if err == nil || !strings.Contains(err.Error(), "manifest ID") {
+		t.Fatalf("expected unsafe parent manifest ID error, got %v", err)
+	}
+}
+
+func TestResolveManifestChainDetectsParentCycle(t *testing.T) {
+	t.Parallel()
+
+	repoPath := filepath.Join(t.TempDir(), "repo")
+	spoolA := writeSpoolFile(t, []byte("abc"), 4096)
+	spoolB := writeSpoolFile(t, []byte("xyz"), 4096)
+	if _, err := Commit(CommitRequest{
+		RepositoryPath: repoPath,
+		ManifestID:     "m1",
+		SpoolPath:      spoolA,
+		LogicalSize:    4099,
+		Spans:          []FrameSpan{{Kind: SpanKindData, Offset: 0, Length: 3}},
+	}); err != nil {
+		t.Fatalf("commit m1: %v", err)
+	}
+	if _, err := Commit(CommitRequest{
+		RepositoryPath: repoPath,
+		ManifestID:     "m2",
+		SpoolPath:      spoolB,
+		LogicalSize:    4099,
+		Spans:          []FrameSpan{{Kind: SpanKindData, Offset: 0, Length: 3}},
+	}); err != nil {
+		t.Fatalf("commit m2: %v", err)
+	}
+	setManifestParentForTest(t, repoPath, "m1", "m2")
+
+	_, err := ResolveManifestChain(repoPath, "m2", ManifestChainOptions{})
+	if err == nil || !strings.Contains(err.Error(), "cycle") {
+		t.Fatalf("expected cycle error, got %v", err)
+	}
+}
+
+func TestResolveManifestChainDetectsDepthLimit(t *testing.T) {
+	t.Parallel()
+
+	repoPath := filepath.Join(t.TempDir(), "repo")
+	spoolA := writeSpoolFile(t, []byte("abc"), 4096)
+	spoolB := writeSpoolFile(t, []byte("xyz"), 4096)
+	if _, err := Commit(CommitRequest{
+		RepositoryPath: repoPath,
+		ManifestID:     "m1",
+		SpoolPath:      spoolA,
+		LogicalSize:    4099,
+		Spans:          []FrameSpan{{Kind: SpanKindData, Offset: 0, Length: 3}},
+	}); err != nil {
+		t.Fatalf("commit m1: %v", err)
+	}
+	if _, err := Commit(CommitRequest{
+		RepositoryPath: repoPath,
+		ManifestID:     "m2",
+		SpoolPath:      spoolB,
+		LogicalSize:    4099,
+		Spans:          []FrameSpan{{Kind: SpanKindData, Offset: 0, Length: 3}},
+	}); err != nil {
+		t.Fatalf("commit m2: %v", err)
+	}
+
+	_, err := ResolveManifestChain(repoPath, "m2", ManifestChainOptions{MaxDepth: 1})
+	if err == nil || !strings.Contains(err.Error(), "exceeds max depth") {
+		t.Fatalf("expected max depth error, got %v", err)
+	}
+}
+
 func TestCommitFailureDoesNotPublishNewLatest(t *testing.T) {
 	t.Parallel()
 
@@ -246,6 +393,23 @@ func readManifest(path string) (*manifest, error) {
 		return nil, err
 	}
 	return &m, nil
+}
+
+func setManifestParentForTest(t *testing.T, repoPath string, manifestID string, parentManifestID string) {
+	t.Helper()
+	manifestPath := filepath.Join(repoPath, "snapshots", manifestID, "manifest.json")
+	mf, err := readManifest(manifestPath)
+	if err != nil {
+		t.Fatalf("read manifest %s: %v", manifestID, err)
+	}
+	mf.ParentManifestID = parentManifestID
+	data, err := json.MarshalIndent(mf, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal manifest %s: %v", manifestID, err)
+	}
+	if err := os.WriteFile(manifestPath, append(data, '\n'), 0o640); err != nil {
+		t.Fatalf("write manifest %s: %v", manifestID, err)
+	}
 }
 
 func TestCommitReclaimsStaleLock(t *testing.T) {

@@ -20,6 +20,7 @@ The restore populator reads:
 - `status.restoreSource.nodeName`
 - `status.restoreSource.repositoryPath`
 - `status.restoreSource.manifestID`
+- `status.restoreSource.manifestChain` for CAS backups
 - `status.restoreSource.repoUUID`
 - `status.restoreSource.format`
 - optional size and chunk-size hints
@@ -41,3 +42,5 @@ Accepted formats:
 Retention must skip a `Backup` when a PVC in the same namespace still references it through `dataSourceRef` and either:
 - the PVC is not yet bound, or
 - the populator finalizer is still present
+
+For CAS backups, retention also skips expired ancestor `Backup` objects when a retained or active-restore-protected CAS backup lists their manifests in `status.restoreSource.manifestChain`.
