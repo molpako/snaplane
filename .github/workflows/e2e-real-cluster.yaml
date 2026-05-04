@@ -19,35 +19,43 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          large-packages: false
+          android: false
+          dotnet: false
+          haskell: false
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Install Kubernetes Tools
+      - name: Install Minikube QEMU Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y conntrack qemu-system-x86 qemu-utils
-
-          curl -fsSLo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
-          sudo install minikube /usr/local/bin/minikube
-
-          kubectl_version="$(curl -fsSL https://dl.k8s.io/release/stable.txt)"
-          curl -fsSLo kubectl "https://dl.k8s.io/release/${kubectl_version}/bin/linux/amd64/kubectl"
-          sudo install kubectl /usr/local/bin/kubectl
+          sudo apt-get install -y conntrack ovmf qemu-system-x86 qemu-utils
 
       - name: Start Minikube Real Cluster
-        run: |
-          minikube start \
-            --profile=snaplane-real \
-            --driver=qemu2 \
-            --container-runtime=containerd \
-            --cpus=4 \
-            --memory=8192 \
+        uses: medyagh/setup-minikube@latest
+        with:
+          minikube-version: 1.38.0
+          kubernetes-version: stable
+          driver: qemu
+          container-runtime: containerd
+          cpus: 4
+          memory: 8192m
+          wait: all
+          addons: volumesnapshots,csi-hostpath-driver
+          start-args: >-
+            --profile=snaplane-real
             --disk-size=40g
-          minikube addons enable volumesnapshots --profile=snaplane-real
-          minikube addons enable csi-hostpath-driver --profile=snaplane-real
+
+      - name: Wait For Minikube Addons
+        run: |
           kubectl wait --for=condition=Ready node --all --timeout=5m
           kubectl wait --for=condition=ready pod --all -n kube-system --timeout=5m
 
