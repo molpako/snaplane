@@ -22,6 +22,10 @@ When an item is not implemented yet, track it in `TODO.md` instead of adding ano
 
 - `volumereplication-non-adoption.md`
 
+## Runbooks
+
+- `../runbooks/writer-sidecar-cert-rotation.md`
+
 ## Maintenance Rules
 
 - Keep only documents that describe implemented behavior or a still-valid architectural decision.

@@ -15,6 +15,10 @@ const (
 	WriterEndpointAnnotationKey      = "snaplane.molpako.github.io/writer-endpoint"
 	LeaseUsedBytesAnnotationKey      = "snaplane.molpako.github.io/used-bytes"
 	LeaseAvailableBytesAnnotationKey = "snaplane.molpako.github.io/available-bytes"
+	LeaseCASMaintenanceLastRunKey    = "snaplane.molpako.github.io/cas-maintenance-last-run"
+	LeaseCASMaintenanceLastErrorKey  = "snaplane.molpako.github.io/cas-maintenance-last-error"
+	LeaseCASMaintenanceRepoCountKey  = "snaplane.molpako.github.io/cas-maintenance-repos"
+	LeaseCASMaintenanceReclaimedKey  = "snaplane.molpako.github.io/cas-maintenance-reclaimed-bytes"
 
 	SnapshotQueueStatePending    SnapshotQueueState = "Pending"
 	SnapshotQueueStateDispatched SnapshotQueueState = "Dispatched"

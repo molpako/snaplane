@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -15,6 +16,24 @@ import (
 )
 
 const DefaultCASMaintenanceInterval = 6 * time.Hour
+
+type CASMaintenanceSnapshot struct {
+	LastRunAt      time.Time
+	LastError      string
+	RepositoryRuns int
+	ReclaimedBytes int64
+}
+
+var casMaintenanceState = struct {
+	sync.Mutex
+	snapshot CASMaintenanceSnapshot
+}{}
+
+func CurrentCASMaintenanceSnapshot() CASMaintenanceSnapshot {
+	casMaintenanceState.Lock()
+	defer casMaintenanceState.Unlock()
+	return casMaintenanceState.snapshot
+}
 
 func StartCASMaintenanceLoop(ctx context.Context, rootDir string, interval time.Duration) {
 	if interval <= 0 {
@@ -39,10 +58,16 @@ func StartCASMaintenanceLoop(ctx context.Context, rootDir string, interval time.
 func runCASMaintenanceOnce(rootDir string) error {
 	repos, err := listRepositoryPaths(rootDir)
 	if err != nil {
+		recordCASMaintenanceSnapshot(CASMaintenanceSnapshot{
+			LastRunAt: time.Now().UTC(),
+			LastError: err.Error(),
+		})
 		return err
 	}
 
 	var runErr error
+	repositoryRuns := 0
+	var reclaimedBytes int64
 	for _, repoPath := range repos {
 		result, err := casrepo.Compact(repoPath)
 		if err != nil {
@@ -57,9 +82,27 @@ func runCASMaintenanceOnce(rootDir string) error {
 			result.ReclaimedChunkCount,
 			result.ReclaimedBytes,
 		)
+		repositoryRuns++
+		reclaimedBytes += result.ReclaimedBytes
 	}
 
+	snapshot := CASMaintenanceSnapshot{
+		LastRunAt:      time.Now().UTC(),
+		RepositoryRuns: repositoryRuns,
+		ReclaimedBytes: reclaimedBytes,
+	}
+	if runErr != nil {
+		snapshot.LastError = runErr.Error()
+	}
+	recordCASMaintenanceSnapshot(snapshot)
+
 	return runErr
+}
+
+func recordCASMaintenanceSnapshot(snapshot CASMaintenanceSnapshot) {
+	casMaintenanceState.Lock()
+	defer casMaintenanceState.Unlock()
+	casMaintenanceState.snapshot = snapshot
 }
 
 func listRepositoryPaths(rootDir string) ([]string, error) {

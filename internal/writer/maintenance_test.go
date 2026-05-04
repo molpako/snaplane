@@ -75,6 +75,16 @@ func TestRunCASMaintenanceOnceCompactsValidReposAndReportsBrokenRepos(t *testing
 	if len(entries) != 1 {
 		t.Fatalf("expected compacted valid repo to keep only one reachable chunk, got %d entries", len(entries))
 	}
+	snapshot := CurrentCASMaintenanceSnapshot()
+	if snapshot.LastRunAt.IsZero() {
+		t.Fatalf("expected maintenance snapshot timestamp")
+	}
+	if snapshot.RepositoryRuns != 1 {
+		t.Fatalf("expected one successful repo run, got %d", snapshot.RepositoryRuns)
+	}
+	if !strings.Contains(snapshot.LastError, brokenRepo) {
+		t.Fatalf("expected snapshot error to include broken repo path, got %q", snapshot.LastError)
+	}
 }
 
 func createCASGeneration(t *testing.T, repoPath, manifestID string, payload []byte) {
