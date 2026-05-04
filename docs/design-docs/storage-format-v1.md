@@ -16,9 +16,11 @@ Implemented:
 - manifest parent chaining for generation history
 - manifest-chain ancestry publication in `Backup.status.restoreSource`
 - explicit `allocated` and `freed` chunk states in change records
+- writer-sidecar CAS maintenance runs repository compaction
 
 Not implemented:
-- GC and compaction runtime execution
+- dependency-safe repository pruning and GC fencing
+- operational observability for compaction maintenance
 - compression beyond `codec=none`
 - a production-ready SnapshotMetadata-backed CBT data source
 

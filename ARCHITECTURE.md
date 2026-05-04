@@ -96,6 +96,7 @@ Rules:
 
 - default writer mode is `mock`
 - optional `SNAPLANE_BACKUP_WRITE_MODE=cas` writes a PVC-scoped CAS repository under `/var/backup/<namespace>/<pvc>/repo`
+- writer-sidecar CAS maintenance scans PVC-scoped repositories and runs compaction every `6h` by default
 - restore supports:
   - `mock-image-v1`
   - `cas-v1`
@@ -103,7 +104,7 @@ Rules:
 ## Explicitly Out Of Scope
 
 - automatic destination failover
-- GC and compaction runtime execution
+- dependency-safe repository pruning and GC fencing
 - a production-ready SnapshotMetadata-backed CBT data path
 - a Ceph-backed nightly CBT gate; the current nightly lane remains a hostpath-based integration lane
 - benchmark and performance tuning work
