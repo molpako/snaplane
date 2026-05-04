@@ -37,11 +37,11 @@ Snaplane e2e tests use `kubernetes-sigs/e2e-framework` and currently run in two 
 
 ## Real Cluster Gate
 
-- command: `make test-e2e-real-cluster IMG=<pullable-image>`
+- command: `make test-e2e-real-cluster IMG=<locally-built-image>`
 - cluster: current kubeconfig; the target does not create or load a Kind cluster
 - TLS: `E2E_TLS_MODE=cert-manager`
 - cert-manager: required
-- image: `IMG` must already be pullable by the cluster
+- image: the workflow builds `IMG=controller:latest` from the checked-out source before running the gate
 - configuration:
   - `E2E_STORAGE_CLASS` selects the test `StorageClass`
   - `E2E_VOLUME_SNAPSHOT_CLASS` selects the test `VolumeSnapshotClass`

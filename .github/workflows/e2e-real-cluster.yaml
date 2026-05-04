@@ -3,10 +3,6 @@ name: E2E Real Cluster
 on:
   workflow_dispatch:
     inputs:
-      image:
-        description: Pullable Snaplane image to deploy.
-        required: true
-        default: ghcr.io/molpako/snaplane:v0.0.1
       storage_class:
         description: StorageClass used by the real-cluster gate.
         required: true
@@ -24,6 +20,8 @@ jobs:
     timeout-minutes: 60
     if: ${{ vars.SNAPLANE_REAL_CLUSTER_E2E_ENABLED == 'true' }}
     environment: release-e2e
+    env:
+      SNAPLANE_E2E_IMAGE: controller:latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,13 +41,16 @@ jobs:
           echo "$KUBECONFIG_B64" | base64 -d > "$HOME/.kube/config"
           chmod 0600 "$HOME/.kube/config"
 
+      - name: Build Snaplane Image
+        run: make docker-build IMG="$SNAPLANE_E2E_IMAGE"
+
       - name: Run Real Cluster E2E
         id: real_cluster
         continue-on-error: true
         env:
           E2E_STORAGE_CLASS: ${{ inputs.storage_class }}
           E2E_VOLUME_SNAPSHOT_CLASS: ${{ inputs.volume_snapshot_class }}
-        run: make test-e2e-real-cluster IMG='${{ inputs.image }}'
+        run: make test-e2e-real-cluster IMG="$SNAPLANE_E2E_IMAGE"
 
       - name: Collect Real Cluster Diagnostics
         if: steps.real_cluster.outcome == 'failure'
