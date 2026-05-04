@@ -168,6 +168,7 @@ func seedMockBackupOnNode(ctx context.Context, t *testing.T, kubeClient kubernet
 func createRealClusterPopulatorParams(ctx context.Context, t *testing.T, kubeClient kubernetes.Interface, ns, nodeName string, volumeBytes int64) populatorMachinery.PopulatorParams {
 	t.Helper()
 	volumeMode := corev1.PersistentVolumeBlock
+	storageClassName := e2eStorageClassName()
 	pvcPrime := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: ns,
@@ -181,6 +182,7 @@ func createRealClusterPopulatorParams(ctx context.Context, t *testing.T, kubeCli
 				},
 			},
 			VolumeMode: &volumeMode,
+			StorageClassName: &storageClassName,
 		},
 	}
 	if _, err := kubeClient.CoreV1().PersistentVolumeClaims(ns).Create(ctx, pvcPrime, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
