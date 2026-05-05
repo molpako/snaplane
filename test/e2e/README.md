@@ -13,7 +13,9 @@ Snaplane e2e tests use `kubernetes-sigs/e2e-framework` and currently run in two 
 ## Nightly Lane
 
 - command: `make test-e2e-nightly`
+- local incremental command: `make test-e2e-hostpath-incremental`
 - cluster: fresh Kind cluster recreated by the Make target (`KIND_CLUSTER`, default `kind`)
+- local prerequisite: Docker Desktop or a Docker-compatible runtime such as Colima must be running
 - TLS: `E2E_TLS_MODE=cert-manager`
 - cert-manager: required
 - storage path: real `csi-driver-host-path` plus `external-snapshot-metadata`
@@ -21,6 +23,9 @@ Snaplane e2e tests use `kubernetes-sigs/e2e-framework` and currently run in two 
   - `SNAPLANE_CBT_PROVIDER=snapshot-metadata`
   - `SNAPLANE_SNAPSHOT_DATA_MODE=live`
 - purpose: validate the current hostpath-based SnapshotMetadata integration path
+- incremental coverage: creates four 1-minute scheduled backups while a block-mode
+  source pod writes data every 2 seconds, verifying each generation extends the
+  CAS manifest chain with non-zero incremental bytes
 
 ## Ceph Nightly Gate
 

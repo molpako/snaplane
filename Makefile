@@ -81,8 +81,19 @@ ensure-kind-cli: ## Verify that the Kind CLI is installed.
 		exit 1; \
 	}
 
+.PHONY: ensure-kind-runtime
+ensure-kind-runtime: ensure-kind-cli ## Verify that Kind can reach a Docker-compatible runtime.
+	@command -v docker >/dev/null 2>&1 || { \
+		echo "Docker CLI is not installed. Install Docker Desktop or start a Docker-compatible runtime such as Colima."; \
+		exit 1; \
+	}
+	@docker info >/dev/null 2>&1 || { \
+		echo "Docker daemon is not reachable. Start Docker Desktop or run: colima start --cpu 4 --memory 8"; \
+		exit 1; \
+	}
+
 .PHONY: ensure-kind-cluster
-ensure-kind-cluster: ensure-kind-cli ## Ensure that the expected Kind cluster exists and is the active kubectl context.
+ensure-kind-cluster: ensure-kind-runtime ## Ensure that the expected Kind cluster exists and is the active kubectl context.
 	@kind get clusters | grep -Fxq '$(KIND_CLUSTER)' || { \
 		echo "Creating Kind cluster '$(KIND_CLUSTER)' for nightly e2e tests..."; \
 		kind create cluster --name '$(KIND_CLUSTER)'; \
@@ -90,7 +101,7 @@ ensure-kind-cluster: ensure-kind-cli ## Ensure that the expected Kind cluster ex
 	@kubectl config use-context 'kind-$(KIND_CLUSTER)' >/dev/null
 
 .PHONY: recreate-kind-cluster
-recreate-kind-cluster: ensure-kind-cli ## Recreate the expected Kind cluster to ensure a clean nightly e2e environment.
+recreate-kind-cluster: ensure-kind-runtime ## Recreate the expected Kind cluster to ensure a clean nightly e2e environment.
 	@kind get clusters | grep -Fxq '$(KIND_CLUSTER)' && { \
 		echo "Deleting existing Kind cluster '$(KIND_CLUSTER)' before nightly e2e tests..."; \
 		kind delete cluster --name '$(KIND_CLUSTER)'; \
@@ -111,6 +122,10 @@ test-e2e-fast: manifests generate fmt vet ensure-kind-cli ## Run e2e tests in fa
 .PHONY: test-e2e-nightly
 test-e2e-nightly: manifests generate fmt vet ensure-kind-cli recreate-kind-cluster ## Run e2e tests in nightly lane (fresh Kind cluster managed by the Make target, cert-manager).
 	KIND_CLUSTER=$(KIND_CLUSTER) E2E_TLS_MODE=cert-manager go test -count=1 -timeout=30m -tags=e2e ./test/e2e/ -v
+
+.PHONY: test-e2e-hostpath-incremental
+test-e2e-hostpath-incremental: manifests generate fmt vet ensure-kind-cli recreate-kind-cluster ## Run the hostpath SnapshotMetadata incremental generation e2e locally.
+	KIND_CLUSTER=$(KIND_CLUSTER) E2E_TLS_MODE=cert-manager go test -count=1 -timeout=20m -tags=e2e ./test/e2e/ -run 'TestIncrementalBackupGenerations' -v
 
 .PHONY: test-e2e-real-cluster
 test-e2e-real-cluster: manifests generate fmt vet ## Run real-cluster e2e gate against the current kubeconfig and a pullable IMG.
