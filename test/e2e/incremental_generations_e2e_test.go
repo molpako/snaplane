@@ -24,18 +24,19 @@ import (
 
 const (
 	incrementalGenerationCount = 4
+	incrementalScheduleCron    = "* * * * *"
 	blockWriterScript          = `i=0
 while true; do
   offset=$(( (i % 32) * 4096 ))
   printf "snaplane-generation-%02d-%s" "$i" "$(date +%s%N)" | dd of=/dev/source bs=1 seek=$offset conv=notrunc status=none
   i=$((i+1))
-  sleep 60
+  sleep 2
 done`
 )
 
 func TestIncrementalBackupGenerations(t *testing.T) {
-	if !isRealClusterLane() || !useRealCBTProvider() {
-		t.Skip("incremental generation coverage requires the Ceph nightly real-CBT lane")
+	if activeTLSMode != tlsModeCertManager || (isRealClusterLane() && !useRealCBTProvider()) {
+		t.Skip("incremental generation coverage requires a cert-manager lane with snapshot-metadata CBT")
 	}
 	registerFailureDiagnostics(t)
 
@@ -67,10 +68,10 @@ func featureScheduledIncrementalGenerations() features.Feature {
 			updateWriterLeaseEndpoint(ctx, t, c, namespace, state.lowNode, endpoint)
 
 			state.policyName = state.prefixed("policy")
-			createScheduledBackupPolicy(ctx, t, c, state.namespace, state.policyName, state.pvcName, "*/5 * * * *")
+			createScheduledBackupPolicy(ctx, t, c, state.namespace, state.policyName, state.pvcName, incrementalScheduleCron)
 			return ctx
 		}).
-		Assess("each 5 minute interval captures a data write and extends the CAS chain", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+		Assess("each 1 minute interval captures data writes and extends the CAS chain", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			c := newRuntimeClient(t, cfg)
 			for generation := 1; generation <= incrementalGenerationCount; generation++ {
 				backups := waitForSucceededPolicyBackups(ctx, t, c, state.namespace, state.policyName, generation)
